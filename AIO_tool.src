@@ -634,12 +634,6 @@ AutoHacker.hack = function(target_ip)
                     session_type = typeof(result)
                     user_context = "unknown"
 
-                    // A more robust way to check for and call the owner method.
-                    // This should work for files, and we'll try it for shells too.
-                    if typeof(result.owner) == "function" then
-                        user_context = result.owner()
-                    end if
-
                     if session_type == "shell" or session_type == "file" then
                         print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
                         sessions.push({"type":session_type,"user":user_context,"object":result,"ip":target_ip})
