@@ -132,7 +132,14 @@ end function
 // Adds a new host to the database.
 Database.add_host = function(ip)
     if Database.host_exists(ip) then return
-    Database.data.hosts[ip] = {"ports":{},"credentials":[],"last_scanned":null}
+    Database.data.hosts[ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
+    Database.save()
+end function
+
+// Adds a found file to a host's record.
+Database.add_file = function(ip, filepath, content)
+    if not Database.host_exists(ip) then Database.add_host(ip)
+    Database.data.hosts[ip].files.push({"path":filepath,"content":content})
     Database.save()
 end function
 
@@ -415,6 +422,18 @@ AutoHacker.hack = function(target_ip)
                         AntiForensics.clean(result)
                         print("--- Hack finished on " + target_ip + " ---")
                         return
+                    else if typeof(result) == "file" then
+                        print("        Got a file! Analyzing...")
+                        filepath = result.path
+                        if result.has_permission("r") then
+                            content = result.get_content
+                            print("        File path: " + filepath)
+                            print("        File content: " + content)
+                            Database.add_file(target_ip, filepath, content)
+                            print("        File saved to database.")
+                        else
+                            print("        Got file at '" + filepath + "' but don't have read permissions.")
+                        end if
                     else
                         print("        Exploit returned a " + typeof(result) + ". Handling not yet implemented.")
                     end if
