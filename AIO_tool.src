@@ -387,32 +387,29 @@ AutoHacker.hack = function(target_ip)
 
             print("      [+] Found exploit: " + exploit_name + " (Requirement: " + (requirement or "None") + ")")
 
-            // 3. Prepare optArgs based on requirement
-            optArgs = null
-            can_attempt = false
-            if requirement == null then
-                can_attempt = true // No requirements, good to go.
-            else if requirement == "password" then
+            // 3. Prepare optArgs and decide if we can attempt the exploit
+            optArgs = "" // Default to empty string to avoid "Invalid arguments" error
+            can_attempt = true // Be optimistic and attempt exploit by default
+
+            if requirement == "password" then
                 optArgs = AutoHacker.generate_password(8)
                 print("        Generated password for exploit: " + optArgs)
-                can_attempt = true
             else if requirement == "lan_ip" then
-                // The 'router' object is from the parent scope
                 port_object = router.ping_port(port_num)
                 if port_object != null then
                     optArgs = port_object.get_lan_ip
-                    if optArgs != null then
+                    if optArgs != null and optArgs != "" then
                        print("        Found LAN IP for exploit: " + optArgs)
-                       can_attempt = true
                     else
-                       print("        Error: Could not determine LAN IP from port object.")
+                       print("        Error: Could not determine LAN IP. Skipping exploit.")
+                       can_attempt = false // We know the req but can't fulfill it
                     end if
                 else
-                    print("        Error: Could not ping port to find LAN IP.")
+                    print("        Error: Could not ping port to find LAN IP. Skipping exploit.")
+                    can_attempt = false // We know the req but can't fulfill it
                 end if
-            else
-                print("        -> Unknown requirement: '" + requirement + "'. Cannot proceed with this exploit.")
             end if
+            // For null or other unknown requirements, we will still try with empty optArgs.
 
             if can_attempt then
                 print("      Attempting exploit: " + exploit_name)
