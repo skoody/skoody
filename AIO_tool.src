@@ -364,7 +364,7 @@ AutoHacker.manage_sessions = function(sessions)
     while true
         print("")
         print("--- Interactive Sessions ---")
-        for i in range(sessions.len)
+        for i in sessions.indexes
             session = sessions[i]
             print("  [" + (i+1) + "] " + session.type + " - " + session.user + "@" + session.ip)
         end for
@@ -635,8 +635,8 @@ AutoHacker.hack = function(target_ip)
                     user_context = "unknown"
 
                     // Try to get user context from the returned object
-                    if result.hasIndex("owner") then
-                        user_context = result.owner
+                    if session_type == "file" and result.hasIndex("owner") then
+                        user_context = result.owner()
                     end if
 
                     if session_type == "shell" or session_type == "file" then
