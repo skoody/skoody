@@ -98,7 +98,7 @@ Database.load = function()
     db_file = host_computer.File(DB_FILE_PATH)
     content = db_file.get_content
     if content == "{}" or content == "" then
-        Database.data = { "hosts": {} }
+        Database.data = {"hosts":{}}
     else
         // This is where a real parser would go. For now, we just log it.
         print("Database content loaded, but parsing is not yet implemented.")
@@ -132,11 +132,7 @@ end function
 // Adds a new host to the database.
 Database.add_host = function(ip)
     if Database.host_exists(ip) then return
-    Database.data.hosts[ip] = {
-        "ports": {},
-        "credentials": [],
-        "last_scanned": null
-    }
+    Database.data.hosts[ip] = {"ports":{},"credentials":[],"last_scanned":null}
     Database.save()
 end function
 
@@ -151,11 +147,7 @@ end function
 // Adds credentials to a host.
 Database.add_credential = function(ip, type, user, pass)
      if not Database.host_exists(ip) then Database.add_host(ip)
-     Database.data.hosts[ip].credentials.push({
-         "type": type,
-         "user": user,
-         "pass": pass
-     })
+     Database.data.hosts[ip].credentials.push({"type":type,"user":user,"pass":pass})
      Database.save()
 end function
 
