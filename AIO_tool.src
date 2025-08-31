@@ -1,0 +1,581 @@
+// ----------------------------------------------------------------
+//  AIO Hacking Tool
+// ----------------------------------------------------------------
+//  Author: Jules
+//  Version: 1.0.0
+//
+//  This script is an all-in-one hacking tool for GreyHack.
+//  It includes a scanner, an auto-hacker, an anti-forensics
+//  cleaner, and a security radar.
+//
+//  Usage:
+//    Run the script and use the following commands:
+//    - scan [ip]
+//    - hack [ip]
+//    - radar
+//    - help
+//    - exit
+// ----------------------------------------------------------------
+
+// ================================================================
+//  Global Configuration & State
+// ================================================================
+
+Database = {}
+DB_FILE_PATH = "/root/aio_database.txt"
+
+// ================================================================
+//  Database Module
+//
+//  Handles saving and loading of collected data to a text file.
+//  The user requested a .txt file, so we'll store data in a
+//  structured format (like JSON) within that file.
+// ================================================================
+
+// Helper to print formatted alerts.
+print_alert = function(message)
+    print("<color=red><b>[!] " + current_date + " - " + message + "</b></color>")
+end function
+
+// Prints the help message for the tool.
+print_help = function()
+    print("")
+    print("<b>AIO Tool Commands:</b>")
+    print("  scan [ip]      - Scans a target IP for open ports and services.")
+    print("  hack [ip]      - Scans and attempts to exploit a target IP.")
+    print("  radar          - Starts the security radar to monitor your system.")
+    print("  help           - Shows this help message.")
+    print("  exit           - Exits the tool.")
+    print("")
+end function
+
+Database.data = {}
+
+// Initializes the database: creates the file if it doesn't exist and loads it.
+Database.init = function()
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(DB_FILE_PATH)
+
+    if db_file == null then
+        print("Database file not found. Creating a new one...")
+        host_computer.touch("/root", "aio_database.txt")
+    end if
+
+    Database.load()
+    print("Database initialized and loaded.")
+end function
+
+// Loads the database from the file using a simple line-based parser.
+Database.load = function()
+    Database.data = {"hosts":{}}
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(DB_FILE_PATH)
+    if db_file == null then return
+
+    content = db_file.get_content
+    if content == null or content == "" then return
+
+    lines = content.split(char(10))
+    current_host_ip = null
+
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":", 3)
+        key = parts[0]
+
+        if key == "HOST_START" then
+            current_host_ip = parts[1]
+            if not Database.data.hosts.hasIndex(current_host_ip) then
+                 Database.data.hosts[current_host_ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
+            end if
+        else if key == "HOST_END" then
+            current_host_ip = null
+        else if current_host_ip != null then
+            if key == "LAST_SCANNED" then
+                Database.data.hosts[current_host_ip].last_scanned = parts[1]
+            else if key == "PORT" then
+                Database.data.hosts[current_host_ip].ports[parts[1]] = parts[2]
+            else if key == "CRED" then
+                 Database.data.hosts[current_host_ip].credentials.push({"type":parts[1],"user":parts[2],"pass":parts[3]})
+            else if key == "FILE" then
+                 decoded_content = parts[2].replace("<NEWLINE>", char(10))
+                 Database.data.hosts[current_host_ip].files.push({"path":parts[1],"content":decoded_content})
+            end if
+        end if
+    end for
+    print("Database loaded from file.")
+end function
+
+// Saves the current database state to a file using a simple line-based format.
+Database.save = function()
+    lines = []
+    for ip in Database.data.hosts.indexes
+        host = Database.data.hosts[ip]
+        lines.push("HOST_START:" + ip)
+        if host.last_scanned != null then lines.push("LAST_SCANNED:" + host.last_scanned)
+
+        for port in host.ports.indexes
+            lines.push("PORT:" + port + ":" + host.ports[port])
+        end for
+
+        for cred in host.credentials
+            lines.push("CRED:" + cred.type + ":" + cred.user + ":" + cred.pass)
+        end for
+
+        for file in host.files
+            encoded_content = file.content.replace(char(10), "<NEWLINE>")
+            lines.push("FILE:" + file.path + ":" + encoded_content)
+        end for
+
+        lines.push("HOST_END:" + ip)
+    end for
+
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(DB_FILE_PATH)
+    result = db_file.set_content(lines.join(char(10)))
+    if result != 1 then
+        print("Error: Failed to save database!")
+    end if
+end function
+
+// Checks if a host exists in the database.
+Database.host_exists = function(ip)
+    return Database.data.hosts.hasIndex(ip)
+end function
+
+// Gets a host's data from the database.
+Database.get_host = function(ip)
+    if not Database.host_exists(ip) then return null
+    return Database.data.hosts[ip]
+end function
+
+// Adds a new host to the database.
+Database.add_host = function(ip)
+    if Database.host_exists(ip) then return
+    Database.data.hosts[ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
+    Database.save()
+end function
+
+// Adds a found file to a host's record.
+Database.add_file = function(ip, filepath, content)
+    if not Database.host_exists(ip) then Database.add_host(ip)
+    Database.data.hosts[ip].files.push({"path":filepath,"content":content})
+    Database.save()
+end function
+
+// Adds a port to a host.
+Database.add_port = function(ip, port, service)
+    if not Database.host_exists(ip) then Database.add_host(ip)
+    Database.data.hosts[ip].ports[str(port)] = service
+    Database.data.hosts[ip].last_scanned = current_date
+    Database.save()
+end function
+
+// Adds credentials to a host.
+Database.add_credential = function(ip, type, user, pass)
+     if not Database.host_exists(ip) then Database.add_host(ip)
+     Database.data.hosts[ip].credentials.push({"type":type,"user":user,"pass":pass})
+     Database.save()
+end function
+
+// Main function and command loop for the tool.
+main = function()
+    Database.init()
+
+    print("----------------------------------------------------")
+    print("  Welcome to the All-In-One Hacking Tool (AIO)")
+    print("  Version: 1.0.0")
+    print("  Type 'help' for a list of commands.")
+    print("----------------------------------------------------")
+
+    while true
+        input = user_input(char(10) + "AIO > ")
+        if input == null or input == "" then continue
+
+        parts = input.split(" ")
+        command = parts[0].lower
+
+        if command == "scan" then
+            if parts.len < 2 then
+                print("Usage: scan [target_ip]")
+            else
+                UniversalScanner.scan(parts[1])
+            end if
+        else if command == "hack" then
+            if parts.len < 2 then
+                print("Usage: hack [target_ip]")
+            else
+                AutoHacker.hack(parts[1])
+            end if
+        else if command == "radar" then
+            SecurityRadar.start()
+        else if command == "help" then
+            print_help()
+        else if command == "exit" then
+            exit("AIO Tool terminated.")
+        else
+            print("Unknown command. Type 'help' for a list of commands.")
+        end if
+    end while
+end function
+
+// ================================================================
+//  Modules (to be implemented)
+// ================================================================
+
+SecurityRadar = {}
+SecurityRadar.last_log_size = 0
+
+// Starts the continuous monitoring of the local machine's logs.
+SecurityRadar.start = function()
+    print("Security Radar activated. Monitoring local logs...")
+    my_ip = get_shell.host_computer.public_ip
+
+    while true
+        log_file = get_shell.host_computer.File("/var/system.log")
+        if log_file == null then
+            print("Error: /var/system.log not found. Cannot monitor.")
+            return
+        end if
+
+        log_content = log_file.get_content
+        if log_content == null or log_content == "" then
+            wait(5) // Wait longer if log is empty
+            continue
+        end if
+
+        lines = log_content.split(char(10))
+        current_log_size = lines.len
+
+        if SecurityRadar.last_log_size == 0 then // First run
+            SecurityRadar.last_log_size = current_log_size
+        else if current_log_size > SecurityRadar.last_log_size then
+            new_lines = lines[SecurityRadar.last_log_size:]
+            print_alert("--- NEW SECURITY ALERTS ---")
+            for line in new_lines
+                // Very basic parsing logic. This would need to be improved
+                // based on the actual log format.
+                if line.indexOf("Connection established from") != null then
+                    parts = line.split("from ")
+                    if parts.len > 1 and parts[1] != my_ip then
+                        print_alert("Foreign login detected from " + parts[1])
+                    end if
+                else if line.indexOf("Port scan") != null then
+                     parts = line.split("from ")
+                     if parts.len > 1 then
+                         print_alert("Port scan detected from " + parts[1])
+                     end if
+                else if line.indexOf("exploit attempt") != null or line.indexOf("overflow") != null then
+                     parts = line.split("from ")
+                     if parts.len > 1 then
+                         print_alert("Exploit attempt detected from " + parts[1])
+                     end if
+                end if
+            end for
+            SecurityRadar.last_log_size = current_log_size
+        end if
+
+        wait(2) // Check logs every 2 seconds
+    end while
+end function
+
+UniversalScanner = {}
+UniversalScanner.scan = function(target_ip)
+    // --- DIG Cache Logic ---
+    host_data = Database.get_host(target_ip)
+    if host_data != null and host_data.last_scanned != null then
+        print("Host " + target_ip + " has been scanned recently (" + host_data.last_scanned + "). Using cached data.")
+        print("Known open ports:")
+        for port in host_data.ports.indexes
+            print("  [+] Port " + port + ": " + host_data.ports[port])
+        end for
+        if host_data.ports.len == 0 then print("  (None)")
+        return
+    end if
+    // --- End DIG Cache Logic ---
+
+    print("Scanning " + target_ip + "...")
+
+    router = get_router(target_ip)
+    if router == null then
+        print("Error: Could not get router for IP " + target_ip + ". Is the IP valid and reachable?")
+        return
+    end if
+
+    ports = router.used_ports
+    if ports == null or ports.len == 0 then
+        print("No open ports found on " + target_ip)
+        Database.add_host(target_ip) // Add host to DB even if no ports are open, to avoid re-scanning
+        Database.data.hosts[target_ip].last_scanned = current_date
+        Database.save()
+        return
+    end if
+
+    print("Open ports on " + target_ip + ":")
+
+    found_ports = false
+    for port in ports
+        if not port.is_closed then
+            found_ports = true
+            port_num = port.port_number
+            service_info = router.port_info(port)
+
+            if service_info != null and service_info != "" then
+                service_name = service_info.split(" ")[0]
+                print("  [+] Port " + port_num + ": " + service_name)
+                Database.add_port(target_ip, port_num, service_name)
+            else
+                print("  [+] Port " + port_num + ": Unknown service")
+                Database.add_port(target_ip, port_num, "unknown")
+            end if
+        end if
+    end for
+
+    if not found_ports then
+        print("No open ports found on " + target_ip)
+        Database.add_host(target_ip)
+        Database.data.hosts[target_ip].last_scanned = current_date
+        Database.save()
+    end if
+
+    print("Scan complete for " + target_ip)
+end function
+
+AutoHacker = {}
+
+// Generates a random alphanumeric password.
+AutoHacker.generate_password = function(length)
+    chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+    password = ""
+    for i in range(length)
+        password = password + chars[floor(rnd * chars.len)]
+    end for
+    return password
+end function
+
+// Main function to orchestrate the hack against a target IP.
+AutoHacker.hack = function(target_ip)
+    print("")
+    print("--- Starting hack on " + target_ip + " ---")
+
+    // Step 1: Ensure we have scan data.
+    if not Database.host_exists(target_ip) or Database.get_host(target_ip).last_scanned == null then
+        print("Host not in database or not scanned. Scanning first...")
+        UniversalScanner.scan(target_ip)
+    end if
+
+    host_data = Database.get_host(target_ip)
+    if host_data == null or host_data.ports.len == 0 then
+        print("No open ports found for " + target_ip + ". Cannot proceed with exploit scan.")
+        return
+    end if
+
+    print("Beginning exploit scan on " + host_data.ports.len + " open ports.")
+
+    // Step 2: Attempt to exploit services on open ports.
+    metax = include_lib("/lib/metaxploit.so")
+    if metax == null then
+        print("Error: Metaxploit library not found. Aborting.")
+        return
+    end if
+
+    for port_str in host_data.ports.indexes
+        port_num = port_str.to_int
+        print("  -> Probing port " + port_num + "...")
+        net_session = metax.net_use(target_ip, port_num)
+
+        if net_session == null then continue
+
+        meta_lib = net_session.dump_lib()
+        if meta_lib == null then continue
+
+        print("    Found library: " + meta_lib.lib_name + " v" + meta_lib.version)
+        vuln_areas = metax.scan(meta_lib)
+
+        if vuln_areas == null or vuln_areas.len == 0 then continue
+
+        print("    [+] Found " + vuln_areas.len + " potential vulnerabilities. Analyzing...")
+
+        for area in vuln_areas
+            details = metax.scan_address(meta_lib, area)
+
+            exploit_name = null
+            requirement = null
+
+            // 1. Parse exploit name
+            name_segments = details.split("<b>")
+            if name_segments.len > 1 then
+                exploit_name = name_segments[1].split("</b>")[0]
+            end if
+            if exploit_name == null then continue
+
+            // 2. Parse requirement
+            if details.indexOf("*Requires:") != -1 then
+                req_segments = details.split("\*Requires:")
+                if req_segments.len > 1 then
+                    requirement = req_segments[1].trim.split(" ")[0].lower
+                end if
+            end if
+
+            print("      [+] Found exploit: " + exploit_name + " (Requirement: " + (requirement or "None") + ")")
+
+            // 3. Prepare optArgs and decide if we can attempt the exploit
+            optArgs = "" // Default to empty string to avoid "Invalid arguments" error
+            can_attempt = true // Be optimistic and attempt exploit by default
+
+            if requirement == "password" then
+                optArgs = AutoHacker.generate_password(8)
+                print("        Generated password for exploit: " + optArgs)
+            else if requirement == "lan_ip" then
+                port_object = router.ping_port(port_num)
+                if port_object != null then
+                    optArgs = port_object.get_lan_ip
+                    if optArgs != null and optArgs != "" then
+                       print("        Found LAN IP for exploit: " + optArgs)
+                    else
+                       print("        Error: Could not determine LAN IP. Skipping exploit.")
+                       can_attempt = false // We know the req but can't fulfill it
+                    end if
+                else
+                    print("        Error: Could not ping port to find LAN IP. Skipping exploit.")
+                    can_attempt = false // We know the req but can't fulfill it
+                end if
+            end if
+            // For null or other unknown requirements, we will still try with empty optArgs.
+
+            if can_attempt then
+                print("      Attempting exploit: " + exploit_name)
+                result = meta_lib.overflow(area, exploit_name, optArgs)
+
+                if result != null then
+                    print("      [SUCCESS] Exploit successful!")
+                    if typeof(result) == "shell" then
+                        print("        Got a shell! Proceeding with post-exploitation...")
+                        AutoHacker.crack_passwords(result, target_ip)
+                        AntiForensics.clean(result)
+                        print("--- Hack finished on " + target_ip + " ---")
+                        return
+                    else if typeof(result) == "file" then
+                        print("        Got a file! Analyzing...")
+                        filepath = result.path
+                        if result.has_permission("r") then
+                            content = result.get_content
+                            print("        File path: " + filepath)
+                            print("        File content: " + content)
+                            Database.add_file(target_ip, filepath, content)
+                            print("        File saved to database.")
+                        else
+                            print("        Got file at '" + filepath + "' but don't have read permissions.")
+                        end if
+                    else
+                        print("        Exploit returned a " + typeof(result) + ". Handling not yet implemented.")
+                    end if
+                end if
+            end if
+        end for
+    end for
+
+    print("--- Hack finished on " + target_ip + " ---")
+end function
+
+// Helper function to crack passwords from /etc/passwd if we get a shell.
+AutoHacker.crack_passwords = function(shell, target_ip)
+    computer = shell.host_computer
+    if computer == null then return
+
+    passwd_file = computer.File("/etc/passwd")
+    if passwd_file == null or not passwd_file.has_permission("r") then
+        print("        Could not read /etc/passwd. Aborting password crack.")
+        return
+    end if
+
+    content = passwd_file.get_content
+    if content == null or content == "" then return
+
+    print("        Cracking hashes from /etc/passwd...")
+    crypto = include_lib("/lib/crypto.so")
+    if crypto == null then
+        print("        Crypto library not found. Cannot decipher passwords.")
+        return
+    end if
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":")
+        if parts.len < 2 then continue
+
+        username = parts[0]
+        hash = parts[1]
+
+        if hash != "x" and hash != "" then
+            password = crypto.decipher(hash)
+            if password != null then
+                print("          [!!!] Cracked: " + username + ":" + password)
+                Database.add_credential(target_ip, "user", username, password)
+            end if
+        end if
+    end for
+end function
+
+AntiForensics = {}
+
+// Cleans up traces from a remote computer after a successful hack.
+AntiForensics.clean = function(shell)
+    if shell == null then return
+    print("      Starting anti-forensics cleanup...")
+
+    computer = shell.host_computer
+
+    // 1. Delete /var/log
+    log_file = computer.File("/var/log")
+    if log_file != null then
+        result = log_file.delete
+        if result == "" then
+            print("        - /var/log deleted successfully.")
+        else
+            print("        - Failed to delete /var/log: " + result)
+        end if
+    end if
+
+    // 2. Truncate .bash_history for root.
+    // A more advanced version would find all users and clean their history too.
+    history_file = computer.File("/root/.bash_history")
+    if history_file != null then
+        result = history_file.set_content("")
+        if result == 1 then
+            print("        - /root/.bash_history truncated.")
+        else
+            print("        - Failed to truncate /root/.bash_history.")
+        end if
+    end if
+
+    // 3. Clean /tmp directory
+    tmp_folder = computer.File("/tmp")
+    if tmp_folder != null and tmp_folder.is_folder then
+        // Delete files in /tmp
+        files = tmp_folder.get_files
+        if files != null then
+            for file in files
+                file.delete
+            end for
+        end if
+
+        // Delete folders in /tmp
+        folders = tmp_folder.get_folders
+        if folders != null then
+            for folder in folders
+                folder.delete
+            end for
+        end if
+        print("        - /tmp directory cleaned.")
+    end if
+
+    print("      Anti-forensics cleanup complete.")
+end function
+
+// ================================================================
+//  Script Entry Point
+// ================================================================
+
+main()
