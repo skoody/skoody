@@ -212,9 +212,9 @@ SecurityRadar.start = function()
     my_ip = get_shell.host_computer.public_ip
 
     while true
-        log_file = get_shell.host_computer.File("/var/log")
+        log_file = get_shell.host_computer.File("/var/system.log")
         if log_file == null then
-            print("Error: /var/log not found. Cannot monitor.")
+            print("Error: /var/system.log not found. Cannot monitor.")
             return
         end if
 
