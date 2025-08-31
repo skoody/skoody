@@ -379,7 +379,7 @@ AutoHacker.hack = function(target_ip)
 
             // 2. Parse requirement
             if details.indexOf("*Requires:") != -1 then
-                req_segments = details.split("*Requires:")
+                req_segments = details.split("\*Requires:")
                 if req_segments.len > 1 then
                     requirement = req_segments[1].trim.split(" ")[0].lower
                 end if
