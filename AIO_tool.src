@@ -205,7 +205,12 @@ main = function()
             if parts.len < 2 then
                 print("Usage: hack [target_ip]")
             else
-                AutoHacker.hack(parts[1])
+                found_sessions = AutoHacker.hack(parts[1])
+                if found_sessions.len > 0 then
+                    AutoHacker.manage_sessions(found_sessions)
+                else
+                    print("No interactive sessions were obtained.")
+                end if
             end if
         else if command == "radar" then
             SecurityRadar.start()
@@ -353,8 +358,179 @@ AutoHacker.generate_password = function(length)
     return password
 end function
 
+AutoHacker.manage_sessions = function(sessions)
+    if sessions == null or sessions.len == 0 then return
+
+    while true
+        print("")
+        print("--- Interactive Sessions ---")
+        for i in range(sessions.len)
+            session = sessions[i]
+            print("  [" + (i+1) + "] " + session.type + " - " + session.user + "@" + session.ip)
+        end for
+        print("--------------------------")
+
+        choice = user_input("Select a session to interact with (or 'exit'): ")
+        if choice == "exit" then break
+
+        choice_num = choice.to_int
+        if choice_num > 0 and choice_num <= sessions.len then
+            session = sessions[choice_num - 1]
+            if session.type == "shell" then
+                AutoHacker.handle_shell_session(session)
+            else if session.type == "file" then
+                AutoHacker.handle_file_session(session)
+            end if
+        else
+            print("Invalid selection.")
+        end if
+    end while
+end function
+
+// Handles the interactive shell session.
+AutoHacker.handle_shell_session = function(session)
+    shell = session.object
+    prompt = session.user + "@" + session.ip + "> "
+
+    print("")
+    print("--- Opened shell session ---")
+    print("Type 'help' for a list of special commands, or any remote command.")
+    print("Type 'exit' to return to the session menu.")
+
+    while true
+        input = user_input(prompt)
+        if input == null or input == "" then continue
+
+        parts = input.split(" ")
+        command = parts[0].lower
+        args = ""
+        if parts.len > 1 then
+            args = parts[1:]
+        end if
+
+        if command == "exit" or command == "back" then
+            break
+        else if command == "help" then
+            print("Special commands:")
+            print("  run_crack   - Attempts to crack passwords from /etc/passwd.")
+            print("  run_clean   - Runs the anti-forensics module to clean logs.")
+            print("  exit / back - Returns to the session menu.")
+            print("Any other command will be executed on the remote shell.")
+        else if command == "run_crack" then
+            print("--- Running password cracker... ---")
+            AutoHacker.crack_passwords(shell, session.ip)
+            print("--- Password cracker finished. ---")
+        else if command == "run_clean" then
+            print("--- Running anti-forensics... ---")
+            AntiForensics.clean(shell)
+            print("--- Anti-forensics finished. ---")
+        else
+            // Execute on remote shell
+            arg_string = ""
+            if typeof(args) == "list" then
+                arg_string = args.join(" ")
+            end if
+
+            result = shell.launch(command, arg_string)
+            if typeof(result) == "string" then
+                print("Error: " + result)
+            end if
+        end if
+    end while
+end function
+
+// Handles the interactive file browser session.
+AutoHacker.handle_file_session = function(session)
+    current_dir = session.object
+
+    print("")
+    print("--- Opening file browser session with " + session.user + "@" + session.ip + " ---")
+    // If the initial object is a file, start in its parent directory.
+    if not current_dir.is_folder then
+        print("Initial object is a file, starting in parent directory.")
+        current_dir = current_dir.parent
+        if current_dir == null then
+            print("Error: Could not access parent directory.")
+            return
+        end if
+    end if
+    print("Initial path: " + current_dir.path)
+    print("Type 'help' for commands. Type 'exit' to return.")
+
+    while true
+        prompt = session.user + "@" + session.ip + ":" + current_dir.path + "> "
+        input = user_input(prompt)
+        if input == null or input == "" then continue
+
+        parts = input.split(" ")
+        command = parts[0].lower
+        arg = ""
+        if parts.len > 1 then arg = parts[1]
+
+        if command == "exit" or command == "back" then
+            break
+        else if command == "help" then
+            print("File Browser Commands:")
+            print("  ls          - Lists files and directories.")
+            print("  cd <folder> - Changes directory (supports '..' for parent).")
+            print("  cat <file>  - Displays the content of a file.")
+            print("  pwd         - Shows the current path.")
+            print("  exit / back - Returns to the session menu.")
+        else if command == "pwd" then
+            print(current_dir.path)
+        else if command == "ls" then
+            if not current_dir.is_folder then
+                print("Error: Not a directory.")
+                continue
+            end if
+            print("Contents of " + current_dir.path + ":")
+            for f in current_dir.get_folders
+                print("  <DIR>  " + f.name)
+            end for
+            for f in current_dir.get_files
+                print("         " + f.name)
+            end for
+        else if command == "cd" then
+            if arg == "" then continue
+            if arg == ".." then
+                parent = current_dir.parent
+                if parent != null then current_dir = parent
+            else
+                found = false
+                for f in current_dir.get_folders
+                    if f.name == arg then
+                        current_dir = f
+                        found = true
+                        break
+                    end if
+                end for
+                if not found then print("Error: Directory not found: " + arg)
+            end if
+        else if command == "cat" then
+            if arg == "" then continue
+            found = false
+            for f in current_dir.get_files
+                if f.name == arg then
+                    if f.has_permission("r") then
+                        print(f.get_content)
+                    else
+                        print("Error: Permission denied.")
+                    end if
+                    found = true
+                    break
+                end if
+            end for
+            if not found then print("Error: File not found: " + arg)
+        else
+            print("Unknown command. Type 'help'.")
+        end if
+    end while
+end function
+
 // Main function to orchestrate the hack against a target IP.
+// This function now returns a list of collected session objects.
 AutoHacker.hack = function(target_ip)
+    sessions = []
     print("")
     print("--- Starting hack on " + target_ip + " ---")
 
@@ -367,7 +543,7 @@ AutoHacker.hack = function(target_ip)
     host_data = Database.get_host(target_ip)
     if host_data == null or host_data.ports.len == 0 then
         print("No open ports found for " + target_ip + ". Cannot proceed with exploit scan.")
-        return
+        return sessions
     end if
 
     print("Beginning exploit scan on " + host_data.ports.len + " open ports.")
@@ -376,7 +552,13 @@ AutoHacker.hack = function(target_ip)
     metax = include_lib("/lib/metaxploit.so")
     if metax == null then
         print("Error: Metaxploit library not found. Aborting.")
-        return
+        return sessions
+    end if
+
+    router = get_router(target_ip)
+    if router == null then
+        print("Error: Could not get router for IP " + target_ip + ". Aborting.")
+        return sessions
     end if
 
     for port_str in host_data.ports.indexes
@@ -449,36 +631,31 @@ AutoHacker.hack = function(target_ip)
 
                 if result != null then
                     print("      [SUCCESS] Exploit successful!")
-                    if typeof(result) == "shell" then
-                        print("        Got a shell! Proceeding with post-exploitation...")
-                        AutoHacker.crack_passwords(result, target_ip)
-                        AntiForensics.clean(result)
-                        print("--- Hack finished on " + target_ip + " ---")
-                        return
-                    else if typeof(result) == "file" then
-                        print("        Got a file! Analyzing...")
-                        filepath = result.path
-                        if result.has_permission("r") then
-                            content = result.get_content
-                            print("        File path: " + filepath)
-                            print("        File content: " + content)
-                            Database.add_file(target_ip, filepath, content)
-                            print("        File saved to database.")
-                        else
-                            print("        Got file at '" + filepath + "' but don't have read permissions.")
-                        end if
+                    session_type = typeof(result)
+                    user_context = "unknown"
+
+                    // Try to get user context from the returned object
+                    if result.hasIndex("owner") then
+                        user_context = result.owner
+                    end if
+
+                    if session_type == "shell" or session_type == "file" then
+                        print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
+                        sessions.push({"type":session_type,"user":user_context,"object":result,"ip":target_ip})
                     else
-                        print("        Exploit returned a " + typeof(result) + ". Handling not yet implemented.")
+                        print("        Exploit returned a " + session_type + ". Not an interactive session.")
                     end if
                 end if
             end if
         end for
     end for
 
-    print("--- Hack finished on " + target_ip + " ---")
+    print("--- Hack scan finished on " + target_ip + " ---")
+    return sessions
 end function
 
 // Helper function to crack passwords from /etc/passwd if we get a shell.
+// This logic will be moved to the interactive shell handler later.
 AutoHacker.crack_passwords = function(shell, target_ip)
     computer = shell.host_computer
     if computer == null then return
