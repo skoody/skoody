@@ -421,6 +421,35 @@ AutoHacker.generate_password = function(length)
     return password
 end function
 
+// Infers the user of a shell session by checking permissions on key directories.
+AutoHacker.determine_shell_user = function(shell)
+    computer = shell.host_computer
+    if computer == null then return "unknown"
+
+    // 1. Check for root access
+    root_dir = computer.File("/root")
+    if root_dir != null and root_dir.has_permission("r") then
+        return "root"
+    end if
+
+    // 2. Check for user access in /home
+    home_dir = computer.File("/home")
+    if home_dir != null and home_dir.is_folder then
+        user_dirs = home_dir.get_folders
+        if user_dirs != null then
+            for user_dir in user_dirs
+                // If we can read a user's home dir, we are likely that user.
+                if user_dir.has_permission("r") then
+                    return user_dir.name
+                end if
+            end for
+        end if
+    end if
+
+    // 3. Fallback
+    return "unknown"
+end function
+
 AutoHacker.manage_sessions = function(sessions)
     if sessions == null or sessions.len == 0 then return
 
@@ -696,6 +725,14 @@ AutoHacker.hack = function(target_ip)
                     print("      [SUCCESS] Exploit successful!")
                     session_type = typeof(result)
                     user_context = "unknown"
+
+                    if session_type == "file" then
+                        if typeof(result.owner) == "function" then
+                            user_context = result.owner()
+                        end if
+                    else if session_type == "shell" then
+                        user_context = AutoHacker.determine_shell_user(result)
+                    end if
 
                     if session_type == "shell" or session_type == "file" then
                         print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
