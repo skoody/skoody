@@ -44,6 +44,7 @@ print_help = function()
     print("  scan [ip]      - Scans a target IP for open ports and services.")
     print("  hack [ip]      - Scans and attempts to exploit a target IP.")
     print("  radar          - Starts the security radar to monitor your system.")
+    print("  loot show [ip] - Shows all collected data for a target IP.")
     print("  help           - Shows this help message.")
     print("  exit           - Exits the tool.")
     print("")
@@ -214,6 +215,12 @@ main = function()
             end if
         else if command == "radar" then
             SecurityRadar.start()
+        else if command == "loot" then
+            if parts.len < 3 or parts[1].lower != "show" then
+                print("Usage: loot show [target_ip]")
+            else
+                LootManager.show(parts[2])
+            end if
         else if command == "help" then
             print_help()
         else if command == "exit" then
@@ -225,8 +232,55 @@ main = function()
 end function
 
 // ================================================================
-//  Modules (to be implemented)
+//  Modules
 // ================================================================
+
+LootManager = {}
+LootManager.show = function(ip)
+    host_data = Database.get_host(ip)
+
+    if host_data == null then
+        print("No data found for IP: " + ip)
+        return
+    end if
+
+    print("")
+    print("--- Loot for " + ip + " ---")
+    print("Last Scanned: " + (host_data.last_scanned or "Never"))
+
+    print("")
+    print("<b>Open Ports:</b>")
+    if host_data.ports.len > 0 then
+        for port in host_data.ports.indexes
+            print("  - " + port + ": " + host_data.ports[port])
+        end for
+    else
+        print("  (None)")
+    end if
+
+    print("")
+    print("<b>Cracked Credentials:</b>")
+    if host_data.credentials.len > 0 then
+        for cred in host_data.credentials
+            print("  - Type: " + cred.type + ", User: " + cred.user + ", Pass: " + cred.pass)
+        end for
+    else
+        print("  (None)")
+    end if
+
+    print("")
+    print("<b>Found Files:</b>")
+    if host_data.files.len > 0 then
+        for file in host_data.files
+            print("  - Path: " + file.path)
+            print("    Content: " + file.content)
+        end for
+    else
+        print("  (None)")
+    end if
+
+    print("--------------------------")
+end function
 
 SecurityRadar = {}
 SecurityRadar.last_log_size = 0
