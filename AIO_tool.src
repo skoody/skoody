@@ -443,10 +443,17 @@ AutoHacker.determine_shell_user = function(shell)
     computer = shell.host_computer
     if computer == null then return "unknown"
 
-    // 1. Check for root access
+    // 1. Check for root access using advanced permission checks
     root_dir = computer.File("/root")
-    if root_dir != null and root_dir.has_permission("r") then
-        return "root"
+    if root_dir != null then
+        perms = root_dir.permissions
+        // Check if owner/group is root and "other" has no permissions
+        if root_dir.owner() == "root" and root_dir.group() == "root" and perms[7:] == "---" then
+            // If we still have access, we must be root
+            if root_dir.has_permission("r") then
+                return "root"
+            end if
+        end if
     end if
 
     // 2. Check for user access in /home
@@ -455,15 +462,20 @@ AutoHacker.determine_shell_user = function(shell)
         user_dirs = home_dir.get_folders
         if user_dirs != null then
             for user_dir in user_dirs
-                // If we can read a user's home dir, we are likely that user.
-                if user_dir.has_permission("r") then
-                    return user_dir.name
+                perms = user_dir.permissions
+                user_name = user_dir.name
+                // Check if owner/group matches dir name and "other" has no permissions
+                if user_dir.owner() == user_name and user_dir.group() == user_name and perms[7:] == "---" then
+                    // If we still have access, we must be this user
+                    if user_dir.has_permission("r") then
+                        return user_name
+                    end if
                 end if
             end for
         end if
     end if
 
-    // 3. Fallback
+    // 3. Fallback, possibly guest or a misconfigured system
     return "unknown"
 end function
 
