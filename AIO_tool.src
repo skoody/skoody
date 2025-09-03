@@ -370,32 +370,41 @@ UniversalScanner.scan = function(target_ip)
         return
     end if
 
-    print("Open ports on " + target_ip + ":")
+    print("Full port scan results for " + target_ip + ":")
+    print("PORT   STATUS   SERVICE      LAN IP")
 
-    found_ports = false
+    // Ensure host exists in DB before we start adding data
+    if not Database.host_exists(target_ip) then Database.add_host(target_ip)
+
     for port in ports
-        if not port.is_closed then
-            found_ports = true
-            port_num = port.port_number
-            service_info = router.port_info(port)
+        port_num = port.port_number
+        status = "CLOSED"
+        if not port.is_closed then status = "OPEN"
 
-            if service_info != null and service_info != "" then
-                service_name = service_info.split(" ")[0]
-                print("  [+] Port " + port_num + ": " + service_name)
-                Database.add_port(target_ip, port_num, service_name)
-            else
-                print("  [+] Port " + port_num + ": Unknown service")
-                Database.add_port(target_ip, port_num, "unknown")
-            end if
+        service_info = router.port_info(port)
+        service_name = "unknown"
+        if service_info != null and service_info != "" then
+            service_name = service_info.split(" ")[0]
+        end if
+
+        lan_ip = port.get_lan_ip() or "N/A"
+
+        // Build a formatted line
+        line = ""
+        line = line + port_num + " " * (7 - str(port_num).len)
+        line = line + status + " " * (9 - status.len)
+        line = line + service_name + " " * (13 - service_name.len)
+        line = line + lan_ip
+        print(line)
+
+        // Only add open ports to the database for the hacker to use
+        if status == "OPEN" then
+            Database.add_port(target_ip, port_num, service_name)
         end if
     end for
 
-    if not found_ports then
-        print("No open ports found on " + target_ip)
-        Database.add_host(target_ip)
-        Database.data.hosts[target_ip].last_scanned = current_date
-        Database.save()
-    end if
+    Database.data.hosts[target_ip].last_scanned = current_date
+    Database.save()
 
     print("Scan complete for " + target_ip)
 end function
