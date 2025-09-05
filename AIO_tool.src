@@ -467,52 +467,56 @@ AutoHacker.determine_shell_user = function(shell)
     return "unknown"
 end function
 
-// Infers the user of a file object by checking its owner, path, and permissions.
+// Infers the user of a file object by navigating the filesystem and checking permissions.
 AutoHacker.determine_file_user = function(file_obj)
     if file_obj == null then return "unknown"
 
-    // --- Step 1: Get owner name if possible ---
-    // This is the most reliable piece of data we have.
-    owner = "unknown"
-    if typeof(file_obj.owner) == "function" then
-        owner = file_obj.owner()
-        if owner == null then owner = "unknown"
-    end if
+    // --- Step 1: Navigate up to the root directory ---
+    root_dir = file_obj
+    for i in range(50) // Safety break
+        if root_dir.path == "/" then break
+        if root_dir.parent == null then return "unknown" // Cannot determine if we can't get to root
+        root_dir = root_dir.parent
+    end for
 
-    // --- Step 2: Use write permissions to confirm if we are the owner ---
-    // If we can write to the file, it's highly likely we are the owner (or root).
-    // This helps in cases where a guest can read a file owned by root.
-    if file_obj.has_permission("w") then
-        if owner != "unknown" then
-            return owner // We can write, and we know the owner is X, so we are X.
-        else
-            // We can write but don't know the owner. Check for /root path as a strong hint for root.
-            if typeof(file_obj.path) == "string" and file_obj.path.indexOf("/root") == 0 then
+    if root_dir.path != "/" then return "unknown" // Failed to find root
+
+    // --- Step 2: From root, check for access to /root folder ---
+    // This is the definitive check for root privileges.
+    home_folders = root_dir.get_folders
+    if home_folders != null then
+        for folder in home_folders
+            if folder.name == "root" and folder.has_permission("r") then
                 return "root"
             end if
+        end for
+    end if
+
+    // --- Step 3: If not root, check for access to /home user folders ---
+    home_dir = null
+    if home_folders != null then
+        for folder in home_folders
+            if folder.name == "home" then
+                home_dir = folder
+                break
+            end if
+        end for
+    end if
+
+    if home_dir != null and home_dir.is_folder then
+        user_dirs = home_dir.get_folders
+        if user_dirs != null then
+            for user_dir in user_dirs
+                // The first home directory we can read is ours.
+                if user_dir.has_permission("r") then
+                    return user_dir.name
+                end if
+            end for
         end if
     end if
 
-    // --- Step 3: If we can't write, we are likely not the owner ---
-    // In this case, we just return the owner's name if we know it.
-    // This is for scenarios like `guest` reading `/boot/somefile` owned by `root`.
-    // We can't be sure we are the guest, but we can report the file is owned by `root`.
-    if owner != "unknown" then
-        return owner
-    end if
-
-    // --- Step 4: Final fallback for when owner is unknown ---
-    // This is the weakest heuristic, for when .owner() fails.
-    if typeof(file_obj.path) == "string" then
-        path = file_obj.path
-        if path.indexOf("/root") == 0 then return "root"
-        if path.indexOf("/home/") == 0 then
-            parts = path.split("/")
-            if parts.len > 2 then return parts[2]
-        end if
-    end if
-
-    return "unknown"
+    // --- Step 4: If no specific user access found, assume guest ---
+    return "guest"
 end function
 
 AutoHacker.manage_sessions = function(sessions)
