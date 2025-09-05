@@ -344,12 +344,19 @@ BankDatabase.load = function()
         if line == "" then continue
         parts = line.split(":")
         if parts.len < 3 then continue // Malformed line
-        BankDatabase.data.push({
+
+        cracked_pass_value = null
+        if parts.len > 3 then
+            cracked_pass_value = parts[3]
+        end if
+
+        new_entry = {
             "user": parts[0],
             "domain": parts[1],
             "raw_hash": parts[2],
-            "cracked_pass": (parts[3] if parts.len > 3 else null)
-        })
+            "cracked_pass": cracked_pass_value
+        }
+        BankDatabase.data.push(new_entry)
     end for
 end function
 
@@ -572,7 +579,19 @@ AutoLoot.find_and_process_bank = function(start_node, session)
         user_dirs = home_dir.get_folders
         if user_dirs != null then
             for user_dir in user_dirs
-                bank_file = user_dir.get_file("Config/Bank.txt")
+                // Safe traversal to find Bank.txt for each user
+                config_dir = null
+                for f_conf in user_dir.get_folders
+                    if f_conf.name == "Config" then config_dir = f_conf; break; end if
+                end for
+
+                bank_file = null
+                if config_dir != null then
+                    for f_bank in config_dir.get_files
+                        if f_bank.name == "Bank.txt" then bank_file = f_bank; break; end if
+                    end for
+                end if
+
                 if bank_file != null and bank_file.has_permission("r") then
                     print("    [AutoLoot] Found Bank.txt for user '" + user_dir.name + "'. Parsing...")
                     content = bank_file.get_content
