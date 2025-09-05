@@ -58,13 +58,12 @@ BankDatabase.load = function()
     for line in lines
         if line == "" then continue
         parts = line.split(":")
-        if parts.len < 4 then continue // user:hash:pass:info
+        if parts.len < 3 then continue // user:hash:pass
 
         entry = {}
         entry.user = parts[0]
         entry.raw_hash = parts[1]
         entry.cracked_pass = parts[2]
-        entry.account_info = parts[3:].join(":") // Re-join in case info has colons
         BankDatabase.data.push(entry)
     end for
 end function
@@ -73,7 +72,7 @@ end function
 BankDatabase.save = function()
     lines = []
     for entry in BankDatabase.data
-        line = entry.user + ":" + entry.raw_hash + ":" + entry.cracked_pass + ":" + entry.account_info
+        line = entry.user + ":" + entry.raw_hash + ":" + entry.cracked_pass
         lines.push(line)
     end for
 
@@ -83,12 +82,11 @@ BankDatabase.save = function()
 end function
 
 // Adds a new deciphered bank account to the database
-BankDatabase.add_entry = function(user, raw_hash, cracked_pass, account_info)
+BankDatabase.add_entry = function(user, raw_hash, cracked_pass)
      entry = {}
      entry.user = user
      entry.raw_hash = raw_hash
      entry.cracked_pass = cracked_pass
-     entry.account_info = account_info
      BankDatabase.data.push(entry)
      BankDatabase.save()
 end function
@@ -324,7 +322,7 @@ main = function()
                     print(" (None)")
                 else
                     for entry in BankDatabase.data
-                        print("  - User: " + entry.user + ", Pass: " + entry.cracked_pass + ", Info: " + entry.account_info)
+                        print("  - User: " + entry.user + ", Pass: " + entry.cracked_pass)
                     end for
                 end if
                 print("----------------------------")
@@ -407,22 +405,24 @@ BankManager.decipher_and_store = function(bank_files)
 
     successful_cracks = 0
     for file_content in bank_files
-        // Assuming format: user:hash:info
+        // Assuming format: user:hash
         parts = file_content.split(":")
-        if parts.len < 3 then
+        if parts.len < 2 then
             print("    [-] Malformed bank file content, skipping: " + file_content)
             continue
         end if
 
-        user = parts[0]
+        user_string = parts[0]
         raw_hash = parts[1]
-        account_info = parts[2:].join(":")
+
+        // Extract the actual username from the "user-domain.com" part
+        user = user_string.split("-")[0]
 
         cracked_pass = crypto.decipher(raw_hash)
 
         if cracked_pass != null then
             print("    [+] Cracked password for " + user + "!")
-            BankDatabase.add_entry(user, raw_hash, cracked_pass, account_info)
+            BankDatabase.add_entry(user, raw_hash, cracked_pass)
             successful_cracks = successful_cracks + 1
         else
             print("    [-] Failed to crack password for " + user)
