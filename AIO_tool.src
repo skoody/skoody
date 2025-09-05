@@ -25,6 +25,77 @@ Database = {}
 DB_FILE_PATH = "/root/aio_database.txt"
 
 // ================================================================
+//  Bank Database Module
+// ================================================================
+
+BankDatabase = {}
+BANK_DB_FILE_PATH = "/root/bank_database.txt"
+BankDatabase.data = [] // A list of account objects
+
+// Initializes the bank database
+BankDatabase.init = function()
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(BANK_DB_FILE_PATH)
+
+    if db_file == null then
+        host_computer.touch("/root", "bank_database.txt")
+    end if
+
+    BankDatabase.load()
+end function
+
+// Loads the bank database from its file
+BankDatabase.load = function()
+    BankDatabase.data = []
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(BANK_DB_FILE_PATH)
+    if db_file == null then return
+
+    content = db_file.get_content
+    if content == null or content == "" then return
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":")
+        if parts.len < 4 then continue // user:hash:pass:info
+
+        entry = {
+            "user": parts[0],
+            "raw_hash": parts[1],
+            "cracked_pass": parts[2],
+            "account_info": parts[3:].join(":") // Re-join in case info has colons
+        }
+        BankDatabase.data.push(entry)
+    end for
+end function
+
+// Saves the bank database to its file
+BankDatabase.save = function()
+    lines = []
+    for entry in BankDatabase.data
+        line = entry.user + ":" + entry.raw_hash + ":" + entry.cracked_pass + ":" + entry.account_info
+        lines.push(line)
+    end for
+
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File(BANK_DB_FILE_PATH)
+    db_file.set_content(lines.join(char(10)))
+end function
+
+// Adds a new deciphered bank account to the database
+BankDatabase.add_entry = function(user, raw_hash, cracked_pass, account_info)
+     entry = {
+        "user": user,
+        "raw_hash": raw_hash,
+        "cracked_pass": cracked_pass,
+        "account_info": account_info
+     }
+     BankDatabase.data.push(entry)
+     BankDatabase.save()
+end function
+
+// ================================================================
 //  Database Module
 //
 //  Handles saving and loading of collected data to a text file.
@@ -45,6 +116,7 @@ print_help = function()
     print("  hack [ip]      - Scans and attempts to exploit a target IP.")
     print("  radar          - Starts the security radar to monitor your system.")
     print("  loot show [ip] - Shows all collected data for a target IP.")
+    print("  bank show      - Shows all deciphered bank account credentials.")
     print("  help           - Shows this help message.")
     print("  exit           - Exits the tool.")
     print("")
@@ -199,6 +271,7 @@ end function
 // Main function and command loop for the tool.
 main = function()
     Database.init()
+    BankDatabase.init()
 
     print("----------------------------------------------------")
     print("  Welcome to the All-In-One Hacking Tool (AIO)")
@@ -223,7 +296,14 @@ main = function()
             if parts.len < 2 then
                 print("Usage: hack [target_ip]")
             else
+                AutoHacker.looted_bank_files = [] // Reset loot before hack
                 found_sessions = AutoHacker.hack(parts[1])
+
+                // After hack, decipher any found bank files
+                if AutoHacker.looted_bank_files.len > 0 then
+                    BankManager.decipher_and_store(AutoHacker.looted_bank_files)
+                end if
+
                 if found_sessions.len > 0 then
                     AutoHacker.manage_sessions(found_sessions)
                 else
@@ -237,6 +317,21 @@ main = function()
                 print("Usage: loot show [target_ip]")
             else
                 LootManager.show(parts[2])
+            end if
+        else if command == "bank" then
+            if parts.len > 1 and parts[1].lower == "show" then
+                print("")
+                print("--- Looted Bank Accounts ---")
+                if BankDatabase.data.len == 0 then
+                    print(" (None)")
+                else
+                    for entry in BankDatabase.data
+                        print("  - User: " + entry.user + ", Pass: " + entry.cracked_pass + ", Info: " + entry.account_info)
+                    end for
+                end if
+                print("----------------------------")
+            else
+                 print("Usage: bank show")
             end if
         else if command == "help" then
             print_help()
@@ -297,6 +392,46 @@ LootManager.show = function(ip)
     end if
 
     print("--------------------------")
+end function
+
+BankManager = {}
+
+// Takes a list of raw bank file contents, deciphers them, and stores them.
+BankManager.decipher_and_store = function(bank_files)
+    if bank_files == null or bank_files.len == 0 then return
+
+    print("--- Deciphering " + bank_files.len + " looted bank files... ---")
+    crypto = include_lib("/lib/crypto.so")
+    if crypto == null then
+        print("    [-] Crypto library not found. Cannot decipher passwords.")
+        return
+    end if
+
+    successful_cracks = 0
+    for file_content in bank_files
+        // Assuming format: user:hash:info
+        parts = file_content.split(":")
+        if parts.len < 3 then
+            print("    [-] Malformed bank file content, skipping: " + file_content)
+            continue
+        end if
+
+        user = parts[0]
+        raw_hash = parts[1]
+        account_info = parts[2:].join(":")
+
+        cracked_pass = crypto.decipher(raw_hash)
+
+        if cracked_pass != null then
+            print("    [+] Cracked password for " + user + "!")
+            BankDatabase.add_entry(user, raw_hash, cracked_pass, account_info)
+            successful_cracks = successful_cracks + 1
+        else
+            print("    [-] Failed to crack password for " + user)
+        end if
+    end for
+
+    print("--- Bank deciphering complete. " + successful_cracks + " new entries added. ---")
 end function
 
 SecurityRadar = {}
@@ -427,6 +562,7 @@ UniversalScanner.scan = function(target_ip)
 end function
 
 AutoHacker = {}
+AutoHacker.looted_bank_files = []
 
 // Generates a random alphanumeric password.
 AutoHacker.generate_password = function(length)
@@ -805,7 +941,12 @@ AutoHacker.hack = function(target_ip)
                         new_session = {"type":session_type,"user":user_context,"object":result,"ip":target_ip}
                         print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
                         sessions.push(new_session)
-                        AutoLoot.run(new_session)
+                        looted_content = AutoLoot.run(new_session)
+                        if looted_content and looted_content.len > 0 then
+                            for content_item in looted_content
+                                AutoHacker.looted_bank_files.push(content_item)
+                            end for
+                        end if
                     else
                         print("        Exploit returned a " + session_type + ". Not an interactive session.")
                     end if
@@ -917,112 +1058,64 @@ AntiForensics.clean = function(shell)
 end function
 
 // ================================================================
-//  AutoLoot Module
+//  AutoLoot Module (Refactored for Bank Looting)
 // ================================================================
 
 AutoLoot = {}
 
-// Main entry point for the autoloot process.
+// This function now returns a list of raw bank file contents.
 AutoLoot.run = function(session)
-    print("--- Starting Auto-Loot for " + session.user + "@" + session.ip + " ---")
+    print("--- Running Auto-Loot for Bank.txt files ---")
 
     if session.type == "shell" then
-        AutoLoot.from_shell(session)
+        return AutoLoot.from_shell(session)
     else if session.type == "file" then
-        AutoLoot.from_file(session)
+        return AutoLoot.from_file(session)
     end if
-    print("--- Auto-Loot finished. ---")
+
+    return []
 end function
 
-// Helper to find a file in a given file-object directory.
 AutoLoot.find_file_in_dir = function(directory, filename)
     if not directory.is_folder then return null
     files = directory.get_files
     if files == null then return null
     for file in files
-        if file.name == filename then
-            return file
-        end if
+        if file.name == filename then return file
     end for
     return null
 end function
 
-// Helper to find a folder in a given file-object directory.
 AutoLoot.find_folder_in_dir = function(directory, foldername)
     if not directory.is_folder then return null
     folders = directory.get_folders
     if folders == null then return null
     for folder in folders
-        if folder.name == foldername then
-            return folder
-        end if
+        if folder.name == foldername then return folder
     end for
     return null
 end function
 
-// Handles looting when the entry point is a single file object.
 AutoLoot.from_file = function(session)
+    looted_files = []
     file_obj = session.object
 
-    // First, do the simple loot: get the content of the initial file if possible.
-    if not file_obj.is_folder and file_obj.has_permission("r") then
-        print("    [+] Reading content from initial compromised file: " + file_obj.path)
-        content = file_obj.get_content
-        if content != null and content != "" then
-            Database.add_file(session.ip, file_obj.path, content)
-            print("      -> Looted initial file content and saved to database.")
-        end if
-    end if
-
-    // Now, attempt to navigate to root and do a full loot.
     print("    -> Attempting to navigate to root from " + file_obj.path + "...")
 
     current_file = file_obj
-    // Add a safety break to prevent accidental infinite loops
-    for i in range(50) // 50 levels deep should be more than enough
+    for i in range(50)
         if current_file.path == "/" then break
-        if current_file.parent == null then
-            print("      [-] Could not navigate to root. Parent is null. Aborting full loot.")
-            return
-        end if
+        if current_file.parent == null then return looted_files
         current_file = current_file.parent
     end for
 
-    if current_file.path != "/" then
-        print("      [-] Failed to navigate to root directory. Aborting full loot.")
-        return
-    end if
-
-    print("      [+] Successfully navigated to root directory.")
+    if current_file.path != "/" then return looted_files
     root_dir = current_file
 
-    // With the root directory file object, we can now search for our targets.
-
-    // 1. Loot /etc/passwd
-    print("    -> Searching for /etc/passwd from root...")
-    etc_dir = AutoLoot.find_folder_in_dir(root_dir, "etc")
-    if etc_dir != null then
-        passwd_file = AutoLoot.find_file_in_dir(etc_dir, "passwd")
-        if passwd_file != null and passwd_file.has_permission("r") then
-            content = passwd_file.get_content
-            if content != null and content != "" then
-                Database.add_file(session.ip, passwd_file.path, content)
-                print("      [+] Found and looted /etc/passwd.")
-            end if
-        else
-            print("      [-] Found /etc, but could not read passwd file.")
-        end if
-    else
-        print("      [-] /etc directory not found.")
-    end if
-
-    // 2. Loot bank files
-    print("    -> Searching for user bank files from root...")
     home_dir = AutoLoot.find_folder_in_dir(root_dir, "home")
     if home_dir != null then
         user_folders = home_dir.get_folders
         if user_folders != null and user_folders.len > 0 then
-            looted_banks = 0
             for user_dir in user_folders
                 config_dir = AutoLoot.find_folder_in_dir(user_dir, "Config")
                 if config_dir != null then
@@ -1030,75 +1123,41 @@ AutoLoot.from_file = function(session)
                     if bank_file != null and bank_file.has_permission("r") then
                         content = bank_file.get_content
                         if content != null and content != "" then
-                            Database.add_file(session.ip, bank_file.path, content)
-                            print("      [+] Found and looted " + bank_file.path)
-                            looted_banks = looted_banks + 1
+                            looted_files.push(content)
+                            print("      [+] Found potential bank file in " + user_dir.name)
                         end if
                     end if
                 end if
             end for
-            if looted_banks == 0 then print("      [-] No accessible bank files found.")
-        else
-            print("      [-] No user folders found in /home.")
         end if
-    else
-        print("      [-] /home directory not found.")
     end if
+    return looted_files
 end function
 
-// Handles full-system looting from a shell session.
 AutoLoot.from_shell = function(session)
+    looted_files = []
     shell = session.object
     computer = shell.host_computer
-    if computer == null then
-        print("    [-] Could not get computer object from shell. Aborting loot.")
-        return
-    end if
+    if computer == null then return looted_files
 
-    // 1. Loot /etc/passwd
-    print("    -> Searching for /etc/passwd...")
-    passwd_file = computer.File("/etc/passwd")
-    if passwd_file != null and passwd_file.has_permission("r") then
-        content = passwd_file.get_content
-        if content != null and content != "" then
-            Database.add_file(session.ip, "/etc/passwd", content)
-            print("      [+] Found and looted /etc/passwd.")
-        end if
-    else
-        print("      [-] Could not read /etc/passwd.")
-    end if
-
-    // 2. Loot bank files for all users
-    print("    -> Searching for user bank files...")
     home_dir = computer.File("/home")
-    if home_dir == null or not home_dir.is_folder then
-        print("      [-] /home directory not found.")
-        return
-    end if
+    if home_dir == null or not home_dir.is_folder then return looted_files
 
     user_folders = home_dir.get_folders
-    if user_folders == null or user_folders.len == 0 then
-        print("      [-] No user folders found in /home.")
-        return
-    end if
+    if user_folders == null or user_folders.len == 0 then return looted_files
 
-    looted_banks = 0
     for user_dir in user_folders
         bank_path = user_dir.path + "/Config/Bank.txt"
         bank_file = computer.File(bank_path)
         if bank_file != null and bank_file.has_permission("r") then
             content = bank_file.get_content
             if content != null and content != "" then
-                Database.add_file(session.ip, bank_path, content)
-                print("      [+] Found and looted " + bank_path)
-                looted_banks = looted_banks + 1
+                looted_files.push(content)
+                print("      [+] Found potential bank file in " + user_dir.name)
             end if
         end if
     end for
-
-    if looted_banks == 0 then
-        print("      [-] No accessible bank files found.")
-    end if
+    return looted_files
 end function
 
 // ================================================================
