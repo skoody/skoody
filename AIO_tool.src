@@ -443,39 +443,75 @@ AutoHacker.determine_shell_user = function(shell)
     computer = shell.host_computer
     if computer == null then return "unknown"
 
-    // 1. Check for root access using advanced permission checks
+    // 1. Check for root access. If we can read /root, we are root.
     root_dir = computer.File("/root")
-    if root_dir != null then
-        perms = root_dir.permissions
-        // Check if owner/group is root and "other" has no permissions
-        if root_dir.owner() == "root" and root_dir.group() == "root" and perms[7:] == "---" then
-            // If we still have access, we must be root
-            if root_dir.has_permission("r") then
-                return "root"
-            end if
-        end if
+    if root_dir != null and root_dir.has_permission("r") then
+        return "root"
     end if
 
-    // 2. Check for user access in /home
+    // 2. If not root, check for user access in /home.
     home_dir = computer.File("/home")
     if home_dir != null and home_dir.is_folder then
         user_dirs = home_dir.get_folders
         if user_dirs != null then
             for user_dir in user_dirs
-                perms = user_dir.permissions
-                user_name = user_dir.name
-                // Check if owner/group matches dir name and "other" has no permissions
-                if user_dir.owner() == user_name and user_dir.group() == user_name and perms[7:] == "---" then
-                    // If we still have access, we must be this user
-                    if user_dir.has_permission("r") then
-                        return user_name
-                    end if
+                // The first home directory we can read is ours.
+                if user_dir.has_permission("r") then
+                    return user_dir.name
                 end if
             end for
         end if
     end if
 
-    // 3. Fallback, possibly guest or a misconfigured system
+    // 3. Fallback
+    return "unknown"
+end function
+
+// Infers the user of a file object by checking its owner, path, and permissions.
+AutoHacker.determine_file_user = function(file_obj)
+    if file_obj == null then return "unknown"
+
+    // --- Step 1: Get owner name if possible ---
+    // This is the most reliable piece of data we have.
+    owner = "unknown"
+    if typeof(file_obj.owner) == "function" then
+        owner = file_obj.owner()
+        if owner == null then owner = "unknown"
+    end if
+
+    // --- Step 2: Use write permissions to confirm if we are the owner ---
+    // If we can write to the file, it's highly likely we are the owner (or root).
+    // This helps in cases where a guest can read a file owned by root.
+    if file_obj.has_permission("w") then
+        if owner != "unknown" then
+            return owner // We can write, and we know the owner is X, so we are X.
+        else
+            // We can write but don't know the owner. Check for /root path as a strong hint for root.
+            if typeof(file_obj.path) == "string" and file_obj.path.indexOf("/root") == 0 then
+                return "root"
+            end if
+        end if
+    end if
+
+    // --- Step 3: If we can't write, we are likely not the owner ---
+    // In this case, we just return the owner's name if we know it.
+    // This is for scenarios like `guest` reading `/boot/somefile` owned by `root`.
+    // We can't be sure we are the guest, but we can report the file is owned by `root`.
+    if owner != "unknown" then
+        return owner
+    end if
+
+    // --- Step 4: Final fallback for when owner is unknown ---
+    // This is the weakest heuristic, for when .owner() fails.
+    if typeof(file_obj.path) == "string" then
+        path = file_obj.path
+        if path.indexOf("/root") == 0 then return "root"
+        if path.indexOf("/home/") == 0 then
+            parts = path.split("/")
+            if parts.len > 2 then return parts[2]
+        end if
+    end if
+
     return "unknown"
 end function
 
@@ -755,17 +791,17 @@ AutoHacker.hack = function(target_ip)
                     session_type = typeof(result)
                     user_context = "unknown"
 
-                    if session_type == "file" then
-                        if typeof(result.owner) == "function" then
-                            user_context = result.owner()
-                        end if
-                    else if session_type == "shell" then
+                    if session_type == "shell" then
                         user_context = AutoHacker.determine_shell_user(result)
+                    else if session_type == "file" then
+                        user_context = AutoHacker.determine_file_user(result)
                     end if
 
                     if session_type == "shell" or session_type == "file" then
+                        new_session = {"type":session_type,"user":user_context,"object":result,"ip":target_ip}
                         print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
-                        sessions.push({"type":session_type,"user":user_context,"object":result,"ip":target_ip})
+                        sessions.push(new_session)
+                        AutoLoot.run(new_session)
                     else
                         print("        Exploit returned a " + session_type + ". Not an interactive session.")
                     end if
@@ -818,6 +854,7 @@ AutoHacker.crack_passwords = function(shell, target_ip)
         end if
     end for
 end function
+
 
 AntiForensics = {}
 
@@ -873,6 +910,191 @@ AntiForensics.clean = function(shell)
     end if
 
     print("      Anti-forensics cleanup complete.")
+end function
+
+// ================================================================
+//  AutoLoot Module
+// ================================================================
+
+AutoLoot = {}
+
+// Main entry point for the autoloot process.
+AutoLoot.run = function(session)
+    print("--- Starting Auto-Loot for " + session.user + "@" + session.ip + " ---")
+
+    if session.type == "shell" then
+        AutoLoot.from_shell(session)
+    else if session.type == "file" then
+        AutoLoot.from_file(session)
+    end if
+    print("--- Auto-Loot finished. ---")
+end function
+
+// Helper to find a file in a given file-object directory.
+AutoLoot.find_file_in_dir = function(directory, filename)
+    if not directory.is_folder then return null
+    files = directory.get_files
+    if files == null then return null
+    for file in files
+        if file.name == filename then
+            return file
+        end if
+    end for
+    return null
+end function
+
+// Helper to find a folder in a given file-object directory.
+AutoLoot.find_folder_in_dir = function(directory, foldername)
+    if not directory.is_folder then return null
+    folders = directory.get_folders
+    if folders == null then return null
+    for folder in folders
+        if folder.name == foldername then
+            return folder
+        end if
+    end for
+    return null
+end function
+
+// Handles looting when the entry point is a single file object.
+AutoLoot.from_file = function(session)
+    file_obj = session.object
+
+    // First, do the simple loot: get the content of the initial file if possible.
+    if not file_obj.is_folder and file_obj.has_permission("r") then
+        print("    [+] Reading content from initial compromised file: " + file_obj.path)
+        content = file_obj.get_content
+        if content != null and content != "" then
+            Database.add_file(session.ip, file_obj.path, content)
+            print("      -> Looted initial file content and saved to database.")
+        end if
+    end if
+
+    // Now, attempt to navigate to root and do a full loot.
+    print("    -> Attempting to navigate to root from " + file_obj.path + "...")
+
+    current_file = file_obj
+    // Add a safety break to prevent accidental infinite loops
+    for i in range(50) // 50 levels deep should be more than enough
+        if current_file.path == "/" then break
+        if current_file.parent == null then
+            print("      [-] Could not navigate to root. Parent is null. Aborting full loot.")
+            return
+        end if
+        current_file = current_file.parent
+    end for
+
+    if current_file.path != "/" then
+        print("      [-] Failed to navigate to root directory. Aborting full loot.")
+        return
+    end if
+
+    print("      [+] Successfully navigated to root directory.")
+    root_dir = current_file
+
+    // With the root directory file object, we can now search for our targets.
+
+    // 1. Loot /etc/passwd
+    print("    -> Searching for /etc/passwd from root...")
+    etc_dir = AutoLoot.find_folder_in_dir(root_dir, "etc")
+    if etc_dir != null then
+        passwd_file = AutoLoot.find_file_in_dir(etc_dir, "passwd")
+        if passwd_file != null and passwd_file.has_permission("r") then
+            content = passwd_file.get_content
+            if content != null and content != "" then
+                Database.add_file(session.ip, passwd_file.path, content)
+                print("      [+] Found and looted /etc/passwd.")
+            end if
+        else
+            print("      [-] Found /etc, but could not read passwd file.")
+        end if
+    else
+        print("      [-] /etc directory not found.")
+    end if
+
+    // 2. Loot bank files
+    print("    -> Searching for user bank files from root...")
+    home_dir = AutoLoot.find_folder_in_dir(root_dir, "home")
+    if home_dir != null then
+        user_folders = home_dir.get_folders
+        if user_folders != null and user_folders.len > 0 then
+            looted_banks = 0
+            for user_dir in user_folders
+                config_dir = AutoLoot.find_folder_in_dir(user_dir, "Config")
+                if config_dir != null then
+                    bank_file = AutoLoot.find_file_in_dir(config_dir, "Bank.txt")
+                    if bank_file != null and bank_file.has_permission("r") then
+                        content = bank_file.get_content
+                        if content != null and content != "" then
+                            Database.add_file(session.ip, bank_file.path, content)
+                            print("      [+] Found and looted " + bank_file.path)
+                            looted_banks = looted_banks + 1
+                        end if
+                    end if
+                end if
+            end for
+            if looted_banks == 0 then print("      [-] No accessible bank files found.")
+        else
+            print("      [-] No user folders found in /home.")
+        end if
+    else
+        print("      [-] /home directory not found.")
+    end if
+end function
+
+// Handles full-system looting from a shell session.
+AutoLoot.from_shell = function(session)
+    shell = session.object
+    computer = shell.host_computer
+    if computer == null then
+        print("    [-] Could not get computer object from shell. Aborting loot.")
+        return
+    end if
+
+    // 1. Loot /etc/passwd
+    print("    -> Searching for /etc/passwd...")
+    passwd_file = computer.File("/etc/passwd")
+    if passwd_file != null and passwd_file.has_permission("r") then
+        content = passwd_file.get_content
+        if content != null and content != "" then
+            Database.add_file(session.ip, "/etc/passwd", content)
+            print("      [+] Found and looted /etc/passwd.")
+        end if
+    else
+        print("      [-] Could not read /etc/passwd.")
+    end if
+
+    // 2. Loot bank files for all users
+    print("    -> Searching for user bank files...")
+    home_dir = computer.File("/home")
+    if home_dir == null or not home_dir.is_folder then
+        print("      [-] /home directory not found.")
+        return
+    end if
+
+    user_folders = home_dir.get_folders
+    if user_folders == null or user_folders.len == 0 then
+        print("      [-] No user folders found in /home.")
+        return
+    end if
+
+    looted_banks = 0
+    for user_dir in user_folders
+        bank_path = user_dir.path + "/Config/Bank.txt"
+        bank_file = computer.File(bank_path)
+        if bank_file != null and bank_file.has_permission("r") then
+            content = bank_file.get_content
+            if content != null and content != "" then
+                Database.add_file(session.ip, bank_path, content)
+                print("      [+] Found and looted " + bank_path)
+                looted_banks = looted_banks + 1
+            end if
+        end if
+    end for
+
+    if looted_banks == 0 then
+        print("      [-] No accessible bank files found.")
+    end if
 end function
 
 // ================================================================
