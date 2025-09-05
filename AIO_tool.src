@@ -519,10 +519,8 @@ AutoLoot.find_and_process_passwd = function(start_node, session)
         root_dir = start_node
     end if
 
-    if root_dir == null or not root_dir.is_folder then
-        print("    [AutoLoot] Cannot access / – permission denied or not a folder.")
-        return
-    end if
+    if root_dir == null then return
+    if not root_dir.is_folder then return
 
     etc_dir = null
     folders = root_dir.get_folders
@@ -535,10 +533,7 @@ AutoLoot.find_and_process_passwd = function(start_node, session)
         end for
     end if
 
-    if etc_dir == null then
-        // This is not an error for guest users, just means no access.
-        return
-    end if
+    if etc_dir == null then return
 
     files = etc_dir.get_files
     if files != null then
@@ -550,33 +545,30 @@ AutoLoot.find_and_process_passwd = function(start_node, session)
         end for
     end if
 
-    if passwd_file != null and passwd_file.has_permission("r") then
-        content = passwd_file.get_content
-        if content != null then
-            print("    [AutoLoot] Found /etc/passwd. Cracking...")
-            cracked_count = AutoHacker.crack_passwords_from_content(content, session.ip)
-            print("    [AutoLoot] Cracked " + cracked_count + " new passwords.")
-        end if
+    if passwd_file == null then return
+    if not passwd_file.has_permission("r") then return
+
+    content = passwd_file.get_content
+    if content != null then
+        print("    [AutoLoot] Found /etc/passwd. Cracking...")
+        cracked_count = AutoHacker.crack_passwords_from_content(content, session.ip)
+        print("    [AutoLoot] Cracked " + cracked_count + " new passwords.")
     end if
 end function
 
 // Helper to find and process Bank.txt with robust null checks.
 AutoLoot.find_and_process_bank = function(start_node, session)
-    if session.user == "guest" or session.user == "unknown" then
-        return // Nothing to do for these users
-    end if
+    if session.user == "guest" or session.user == "unknown" then return
 
     root_dir = null
-    if typeof(start_node.File) == "function" then // Computer object
+    if typeof(start_node.File) == "function" then
         root_dir = start_node.File("/")
-    else // It's a file object, assumed to be root
+    else
         root_dir = start_node
     end if
 
-    if root_dir == null or not root_dir.is_folder then
-        // Already logged in find_and_process_passwd, so no new log needed.
-        return
-    end if
+    if root_dir == null then return
+    if not root_dir.is_folder then return
 
     home_dir = null
     folders = root_dir.get_folders
@@ -589,9 +581,7 @@ AutoLoot.find_and_process_bank = function(start_node, session)
         end for
     end if
 
-    if home_dir == null then
-        return // /home not found or not readable
-    end if
+    if home_dir == null then return
 
     if session.user == "root" then
         print("    [AutoLoot] Running as root, searching all user directories for Bank.txt...")
@@ -620,7 +610,8 @@ end function
 
 // Sub-helper to process a specific user directory for Bank.txt
 AutoLoot.get_bank_file_from_user_dir = function(user_dir)
-    if user_dir == null or not user_dir.is_folder then return
+    if user_dir == null then return
+    if not user_dir.is_folder then return
 
     config_dir = null
     folders = user_dir.get_folders
@@ -646,13 +637,14 @@ AutoLoot.get_bank_file_from_user_dir = function(user_dir)
         end for
     end if
 
-    if bank_file != null and bank_file.has_permission("r") then
-        content = bank_file.get_content
-        if content != null then
-            print("    [AutoLoot] Found Bank.txt for user '" + user_dir.name + "'. Parsing...")
-            stored_count = BankManager.parse_and_store(content)
-            print("    [AutoLoot] Stored " + stored_count + " new bank credentials for " + user_dir.name + ".")
-        end if
+    if bank_file == null then return
+    if not bank_file.has_permission("r") then return
+
+    content = bank_file.get_content
+    if content != null then
+        print("    [AutoLoot] Found Bank.txt for user '" + user_dir.name + "'. Parsing...")
+        stored_count = BankManager.parse_and_store(content)
+        print("    [AutoLoot] Stored " + stored_count + " new bank credentials for " + user_dir.name + ".")
     end if
 end function
 
