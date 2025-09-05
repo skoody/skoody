@@ -60,12 +60,11 @@ BankDatabase.load = function()
         parts = line.split(":")
         if parts.len < 4 then continue // user:hash:pass:info
 
-        entry = {
-            "user": parts[0],
-            "raw_hash": parts[1],
-            "cracked_pass": parts[2],
-            "account_info": parts[3:].join(":") // Re-join in case info has colons
-        }
+        entry = {}
+        entry.user = parts[0]
+        entry.raw_hash = parts[1]
+        entry.cracked_pass = parts[2]
+        entry.account_info = parts[3:].join(":") // Re-join in case info has colons
         BankDatabase.data.push(entry)
     end for
 end function
@@ -85,12 +84,11 @@ end function
 
 // Adds a new deciphered bank account to the database
 BankDatabase.add_entry = function(user, raw_hash, cracked_pass, account_info)
-     entry = {
-        "user": user,
-        "raw_hash": raw_hash,
-        "cracked_pass": cracked_pass,
-        "account_info": account_info
-     }
+     entry = {}
+     entry.user = user
+     entry.raw_hash = raw_hash
+     entry.cracked_pass = cracked_pass
+     entry.account_info = account_info
      BankDatabase.data.push(entry)
      BankDatabase.save()
 end function
