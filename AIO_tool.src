@@ -350,13 +350,7 @@ BankDatabase.load = function()
             cracked_pass_value = parts[3]
         end if
 
-        new_entry = {
-            "user": parts[0],
-            "domain": parts[1],
-            "raw_hash": parts[2],
-            "cracked_pass": cracked_pass_value
-        }
-        BankDatabase.data.push(new_entry)
+        BankDatabase.data.push({"user": parts[0], "domain": parts[1], "raw_hash": parts[2], "cracked_pass": cracked_pass_value})
     end for
 end function
 
@@ -394,12 +388,7 @@ BankDatabase.add_entry = function(user, domain, raw_hash, cracked_pass)
     end for
 
     // If no existing entry, add a new one.
-    BankDatabase.data.push({
-        "user": user,
-        "domain": domain,
-        "raw_hash": raw_hash,
-        "cracked_pass": cracked_pass
-    })
+    BankDatabase.data.push({"user": user, "domain": domain, "raw_hash": raw_hash, "cracked_pass": cracked_pass})
     BankDatabase.save()
 end function
 
