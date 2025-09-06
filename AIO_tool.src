@@ -730,8 +730,12 @@ UniversalScanner.scan = function(target_ip)
 
         lan_ip = port.get_lan_ip or "N/A"
 
-        // Build a formatted line using ljust for proper padding and string conversion
-        line = str(port_num).ljust(7) + status.ljust(9) + service_name.ljust(13) + lan_ip
+        // Build a formatted line
+        line = ""
+        line = line + str(port_num) + " " * (7 - str(port_num).len)
+        line = line + status + " " * (9 - status.len)
+        line = line + service_name + " " * (13 - service_name.len)
+        line = line + lan_ip
         print(line)
 
         if status == "OPEN" then
