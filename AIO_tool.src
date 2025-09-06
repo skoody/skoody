@@ -44,8 +44,6 @@ print_help = function()
     print("  scan [ip]      - Scans a target IP for open ports and services.")
     print("  hack [ip]      - Scans and attempts to exploit a target IP.")
     print("  radar          - Starts the security radar to monitor your system.")
-    print("  loot show [ip] - Shows all collected data for a target IP.")
-    print("  bank show      - Shows all collected bank account information.")
     print("  help           - Shows this help message.")
     print("  exit           - Exits the tool.")
     print("")
@@ -200,7 +198,6 @@ end function
 // Main function and command loop for the tool.
 main = function()
     Database.init()
-    BankDatabase.init()
 
     print("----------------------------------------------------")
     print("  Welcome to the All-In-One Hacking Tool (AIO)")
@@ -234,18 +231,6 @@ main = function()
             end if
         else if command == "radar" then
             SecurityRadar.start()
-        else if command == "loot" then
-            if parts.len < 3 or parts[1].lower != "show" then
-                print("Usage: loot show [target_ip]")
-            else
-                LootManager.show(parts[2])
-            end if
-        else if command == "bank" then
-            if parts.len > 1 and parts[1].lower == "show" then
-                BankManager.show()
-            else
-                print("Usage: bank show")
-            end if
         else if command == "help" then
             print_help()
         else if command == "exit" then
@@ -259,394 +244,6 @@ end function
 // ================================================================
 //  Modules
 // ================================================================
-
-LootManager = {}
-LootManager.show = function(ip)
-    host_data = Database.get_host(ip)
-
-    if host_data == null then
-        print("No data found for IP: " + ip)
-        return
-    end if
-
-    print("")
-    print("--- Loot for " + ip + " ---")
-    print("Last Scanned: " + (host_data.last_scanned or "Never"))
-
-    print("")
-    print("<b>Open Ports:</b>")
-    if host_data.ports.len > 0 then
-        for port in host_data.ports.indexes
-            print("  - " + port + ": " + host_data.ports[port])
-        end for
-    else
-        print("  (None)")
-    end if
-
-    print("")
-    print("<b>Cracked Credentials:</b>")
-    if host_data.credentials.len > 0 then
-        for cred in host_data.credentials
-            print("  - Type: " + cred.type + ", User: " + cred.user + ", Pass: " + cred.pass)
-        end for
-    else
-        print("  (None)")
-    end if
-
-    print("")
-    print("<b>Found Files:</b>")
-    if host_data.files.len > 0 then
-        for file in host_data.files
-            print("  - Path: " + file.path)
-            print("    Content: " + file.content)
-        end for
-    else
-        print("  (None)")
-    end if
-
-    print("--------------------------")
-end function
-
-// ================================================================
-//  Bank Database & Manager
-// ================================================================
-BANK_DB_PATH = "/root/bank_database.txt"
-
-BankDatabase = {}
-BankDatabase.data = [] // Array of maps: {user, domain, raw_hash, cracked_pass}
-
-// Initializes the bank database.
-BankDatabase.init = function()
-    host_computer = get_shell.host_computer
-    db_file = host_computer.File(BANK_DB_PATH)
-
-    if db_file == null then
-        print("Bank database not found. Creating a new one...")
-        host_computer.touch("/root", "bank_database.txt")
-    end if
-
-    BankDatabase.load()
-    print("Bank database initialized.")
-end function
-
-// Loads the bank database from the file.
-BankDatabase.load = function()
-    BankDatabase.data = []
-    host_computer = get_shell.host_computer
-    db_file = host_computer.File(BANK_DB_PATH)
-    if db_file == null then return
-
-    content = db_file.get_content
-    if content == null or content == "" then return
-
-    lines = content.split(char(10))
-    for line in lines
-        if line == "" then continue
-        parts = line.split(":")
-        if parts.len < 3 then continue // Malformed line
-
-        cracked_pass_value = null
-        if parts.len > 3 then
-            cracked_pass_value = parts[3]
-        end if
-
-        new_entry = {"user": parts[0],"domain": parts[1],"raw_hash": parts[2],"cracked_pass": cracked_pass_value}
-        BankDatabase.data.push(new_entry)
-    end for
-end function
-
-// Saves the bank database to the file.
-BankDatabase.save = function()
-    lines = []
-    for entry in BankDatabase.data
-        line = entry.user + ":" + entry.domain + ":" + entry.raw_hash
-        if entry.cracked_pass != null then
-            line = line + ":" + entry.cracked_pass
-        end if
-        lines.push(line)
-    end for
-
-    host_computer = get_shell.host_computer
-    db_file = host_computer.File(BANK_DB_PATH)
-    result = db_file.set_content(lines.join(char(10)))
-    if result != 1 then
-        print("Error: Failed to save bank database!")
-    end if
-end function
-
-// Adds a new bank entry or updates an existing one with a cracked password.
-BankDatabase.add_entry = function(user, domain, raw_hash, cracked_pass)
-    // Check for existing entries to avoid duplicates
-    for entry in BankDatabase.data
-        if entry.user == user and entry.domain == domain and entry.raw_hash == raw_hash then
-            // If entry exists but we just cracked the pass, update it.
-            if entry.cracked_pass == null and cracked_pass != null then
-                entry.cracked_pass = cracked_pass
-                BankDatabase.save()
-            end if
-            return // Entry already handled
-        end if
-    end for
-
-    // If no existing entry, add a new one.
-    BankDatabase.data.push({"user": user,"domain": domain,"raw_hash": raw_hash,"cracked_pass": cracked_pass})
-    BankDatabase.save()
-end function
-
-BankManager = {}
-
-// Parses and deciphers the content of a Bank.txt file, then stores it.
-BankManager.parse_and_store = function(content)
-    if content == null or content == "" then return 0
-
-    crypto = include_lib("/lib/crypto.so")
-    if crypto == null then
-        print_alert("Crypto library not found. Cannot decipher bank passwords.")
-        return 0
-    end if
-
-    lines = content.split(char(10))
-    count = 0
-    for line in lines
-        if line == "" then continue
-
-        // Format is: USER-DOMAIN:HASH
-        line_parts = line.split(":")
-        if line_parts.len != 2 then
-            print_alert("Malformed line in Bank.txt: " + line)
-            continue
-        end if
-
-        user_domain_str = line_parts[0]
-        hash_to_decipher = line_parts[1]
-
-        // Parse user and domain from the first part
-        last_hyphen_index = user_domain_str.lastIndexOf("-")
-        if last_hyphen_index == -1 or last_hyphen_index == 0 or last_hyphen_index == user_domain_str.len - 1 then
-            print_alert("Malformed user-domain in Bank.txt: " + user_domain_str)
-            continue
-        end if
-
-        user = user_domain_str[0:last_hyphen_index]
-        domain = user_domain_str[last_hyphen_index+1:]
-
-        // Decipher the hash part
-        cracked_pass = crypto.decipher(hash_to_decipher)
-
-        if cracked_pass != null then
-            print("  [Loot] Deciphered bank credential for user '" + user + "' at domain '" + domain + "'")
-            // The raw_hash in the DB should be the hash we deciphered.
-            BankDatabase.add_entry(user, domain, hash_to_decipher, cracked_pass)
-            count = count + 1
-        end if
-    end for
-    return count
-end function
-
-// Shows the contents of the bank database.
-BankManager.show = function()
-    print("")
-    print("--- Bank Account Database ---")
-    if BankDatabase.data.len == 0 then
-        print("  (No accounts stored)")
-    else
-        for entry in BankDatabase.data
-            line = "  - User: " + entry.user + ", Domain: " + entry.domain
-            line = line + ", Hash: " + entry.raw_hash
-            if entry.cracked_pass != null then
-                line = line + ", Cracked: " + entry.cracked_pass
-            end if
-            print(line)
-        end for
-    end if
-    print("-----------------------------")
-end function
-
-// ================================================================
-//  AutoLoot Module
-// ================================================================
-AutoLoot = {}
-
-// Main loot function, runs after a successful session is established.
-AutoLoot.run = function(session)
-    if session == null then return
-    print("")
-    print("--- Running AutoLoot for " + session.user + "@" + session.ip + " ---")
-
-    start_node = null
-    if session.type == "shell" then
-        start_node = session.object.host_computer
-    else if session.type == "file" then
-        // Navigate to root from the file object
-        root_dir = session.object
-        for i in range(50)
-            if root_dir.path == "/" then break
-            if root_dir.parent == null then
-                print("    [AutoLoot] Error: Could not navigate to root from file session.")
-                return
-            end if
-            root_dir = root_dir.parent
-        end for
-        if root_dir.path != "/" then
-             print("    [AutoLoot] Error: Failed to find root directory.")
-             return
-        end if
-        start_node = root_dir
-    else
-        return // Not a session type we can loot
-    end if
-
-    if start_node == null then
-        print("    [AutoLoot] Error: Could not establish a starting point for loot.")
-        return
-    end if
-
-    // Now call the helpers
-    AutoLoot.find_and_process_passwd(start_node, session)
-    AutoLoot.find_and_process_bank(start_node, session)
-
-    print("--- AutoLoot complete ---")
-end function
-
-// Helper to find and process /etc/passwd with robust null checks.
-AutoLoot.find_and_process_passwd = function(start_node, session)
-    passwd_file = null
-    root_dir = null
-
-    if typeof(start_node.File) == "function" then // It's a computer object
-        root_dir = start_node.File("/")
-    else // It's a file object, assumed to be root
-        root_dir = start_node
-    end if
-
-    if root_dir == null then return
-    if not root_dir.is_folder then return
-
-    etc_dir = null
-    folders = root_dir.get_folders
-    if folders != null then
-        for f in folders
-            if f.name == "etc" then
-                etc_dir = f
-                break
-            end if
-        end for
-    end if
-
-    if etc_dir == null then return
-
-    files = etc_dir.get_files
-    if files != null then
-        for f in files
-            if f.name == "passwd" then
-                passwd_file = f
-                break
-            end if
-        end for
-    end if
-
-    if passwd_file == null then return
-    if not passwd_file.has_permission("r") then return
-
-    content = passwd_file.get_content
-    if content != null then
-        print("    [AutoLoot] Found /etc/passwd. Cracking...")
-        cracked_count = AutoHacker.crack_passwords_from_content(content, session.ip)
-        print("    [AutoLoot] Cracked " + cracked_count + " new passwords.")
-    end if
-end function
-
-// Helper to find and process Bank.txt with robust null checks.
-AutoLoot.find_and_process_bank = function(start_node, session)
-    if session.user == "guest" or session.user == "unknown" then return
-
-    root_dir = null
-    if typeof(start_node.File) == "function" then
-        root_dir = start_node.File("/")
-    else
-        root_dir = start_node
-    end if
-
-    if root_dir == null then return
-    if not root_dir.is_folder then return
-
-    home_dir = null
-    folders = root_dir.get_folders
-    if folders != null then
-        for f in folders
-            if f.name == "home" then
-                home_dir = f
-                break
-            end if
-        end for
-    end if
-
-    if home_dir == null then return
-
-    if session.user == "root" then
-        print("    [AutoLoot] Running as root, searching all user directories for Bank.txt...")
-        user_dirs = home_dir.get_folders
-        if user_dirs != null then
-            for user_dir in user_dirs
-                AutoLoot.get_bank_file_from_user_dir(user_dir)
-            end for
-        end if
-    else
-        user_dir = null
-        user_dirs = home_dir.get_folders
-        if user_dirs != null then
-            for f in user_dirs
-                if f.name == session.user then
-                    user_dir = f
-                    break
-                end if
-            end for
-        end if
-        if user_dir != null then
-            AutoLoot.get_bank_file_from_user_dir(user_dir)
-        end if
-    end if
-end function
-
-// Sub-helper to process a specific user directory for Bank.txt
-AutoLoot.get_bank_file_from_user_dir = function(user_dir)
-    if user_dir == null then return
-    if not user_dir.is_folder then return
-
-    config_dir = null
-    folders = user_dir.get_folders
-    if folders != null then
-        for f in folders
-            if f.name == "Config" then
-                config_dir = f
-                break
-            end if
-        end for
-    end if
-
-    if config_dir == null then return
-
-    bank_file = null
-    files = config_dir.get_files
-    if files != null then
-        for f in files
-            if f.name == "Bank.txt" then
-                bank_file = f
-                break
-            end if
-        end for
-    end if
-
-    if bank_file == null then return
-    if not bank_file.has_permission("r") then return
-
-    content = bank_file.get_content
-    if content != null then
-        print("    [AutoLoot] Found Bank.txt for user '" + user_dir.name + "'. Parsing...")
-        stored_count = BankManager.parse_and_store(content)
-        print("    [AutoLoot] Stored " + stored_count + " new bank credentials for " + user_dir.name + ".")
-    end if
-end function
 
 SecurityRadar = {}
 SecurityRadar.last_log_size = 0
@@ -705,6 +302,147 @@ SecurityRadar.start = function()
 end function
 
 UniversalScanner = {}
+// ================================================================
+//  Simplified Looter Module
+// ================================================================
+Looter = {}
+
+Looter.run = function(session)
+    if session == null then return
+    print("")
+    print("--- Running Looter for " + session.user + "@" + session.ip + " ---")
+
+    if session.type == "shell" then
+        computer = session.object.host_computer
+        if computer == null then return
+        Looter.loot_passwd_from_computer(computer)
+        Looter.loot_bank_from_computer(computer)
+    else if session.type == "file" then
+        file_obj = session.object
+        if file_obj == null then return
+        Looter.loot_passwd_from_file(file_obj)
+    end if
+    print("--- Looter finished ---")
+end function
+
+Looter.loot_passwd_from_computer = function(computer)
+    passwd_file = computer.File("/etc/passwd")
+    if passwd_file == null then return
+    if not passwd_file.has_permission("r") then return
+    content = passwd_file.get_content
+    if content == null then return
+
+    print("  [+] Found /etc/passwd. Cracking...")
+    Looter.parse_and_crack_passwd(content)
+end function
+
+Looter.loot_passwd_from_file = function(start_file)
+    // First, navigate up to root
+    root_dir = start_file
+    for i in range(50)
+        if root_dir.path == "/" then break
+        if root_dir.parent == null then return
+        root_dir = root_dir.parent
+    end for
+    if root_dir.path != "/" then return
+
+    // Now, navigate down to /etc/passwd
+    etc_dir = null
+    folders = root_dir.get_folders
+    if folders == null then return
+    for f in folders
+        if f.name == "etc" then
+            etc_dir = f
+            break
+        end if
+    end for
+    if etc_dir == null then return
+
+    passwd_file = null
+    files = etc_dir.get_files
+    if files == null then return
+    for f in files
+        if f.name == "passwd" then
+            passwd_file = f
+            break
+        end if
+    end for
+    if passwd_file == null then return
+    if not passwd_file.has_permission("r") then return
+
+    content = passwd_file.get_content
+    if content == null then return
+
+    print("  [+] Found /etc/passwd from file session. Cracking...")
+    Looter.parse_and_crack_passwd(content)
+end function
+
+Looter.loot_bank_from_computer = function(computer)
+    homeFolder = computer.File("/home")
+    if homeFolder == null then return
+
+    userFolders = homeFolder.get_folders
+    if userFolders == null then return
+
+    for userFolder in userFolders
+        bankFile = computer.File("/home/" + userFolder.name + "/Config/Bank.txt")
+        if bankFile == null then continue
+        if not bankFile.has_permission("r") then continue
+
+        content = bankFile.get_content
+        if content == null then continue
+
+        print("  [+] Found Bank.txt for user '" + userFolder.name + "'. Deciphering...")
+        Looter.parse_and_crack_bank(content)
+    end for
+end function
+
+Looter.parse_and_crack_passwd = function(content)
+    crypto = include_lib("/lib/crypto.so")
+    if crypto == null then return
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":")
+        if parts.len < 2 then continue
+        username = parts[0]
+        hash = parts[1]
+        if hash != "x" and hash != "" then
+            password = crypto.decipher(hash)
+            if password != null then
+                print("    - Cracked /etc/passwd -> " + username + ":" + password)
+            end if
+        end if
+    end for
+end function
+
+Looter.parse_and_crack_bank = function(content)
+    crypto = include_lib("/lib/crypto.so")
+    if crypto == null then return
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        line_parts = line.split(":")
+        if line_parts.len != 2 then continue
+
+        user_domain_str = line_parts[0]
+        hash_to_decipher = line_parts[1]
+
+        last_hyphen_index = user_domain_str.lastIndexOf("-")
+        if last_hyphen_index == -1 or last_hyphen_index == 0 then continue
+
+        user = user_domain_str[0:last_hyphen_index]
+        domain = user_domain_str[last_hyphen_index+1:]
+
+        cracked_pass = crypto.decipher(hash_to_decipher)
+        if cracked_pass != null then
+            print("    - Cracked Bank.txt -> User: " + user + ", Domain: " + domain + ", Pass: " + cracked_pass)
+        end if
+    end for
+end function
+
 UniversalScanner.scan = function(target_ip)
     // --- DIG Cache Logic ---
     host_data = Database.get_host(target_ip)
@@ -795,13 +533,8 @@ AutoHacker.determine_shell_user = function(shell)
     // 1. Check for root access using advanced permission checks
     root_dir = computer.File("/root")
     if root_dir != null then
-        perms = root_dir.permissions
-        // Check if owner/group is root and "other" has no permissions
-        if root_dir.owner() == "root" and root_dir.group() == "root" and perms[7:] == "---" then
-            // If we still have access, we must be root
-            if root_dir.has_permission("r") then
-                return "root"
-            end if
+        if root_dir.has_permission("r") then
+            return "root"
         end if
     end if
 
@@ -811,14 +544,9 @@ AutoHacker.determine_shell_user = function(shell)
         user_dirs = home_dir.get_folders
         if user_dirs != null then
             for user_dir in user_dirs
-                perms = user_dir.permissions
-                user_name = user_dir.name
-                // Check if owner/group matches dir name and "other" has no permissions
-                if user_dir.owner() == user_name and user_dir.group() == user_name and perms[7:] == "---" then
-                    // If we still have access, we must be this user
-                    if user_dir.has_permission("r") then
-                        return user_name
-                    end if
+                // The first home directory we can read is ours.
+                if user_dir.has_permission("r") then
+                    return user_dir.name
                 end if
             end for
         end if
@@ -844,9 +572,9 @@ AutoHacker.determine_file_user = function(file_obj)
 
     // --- Step 2: From root, check for access to /root folder ---
     // This is the definitive check for root privileges.
-    home_folders = root_dir.get_folders
-    if home_folders != null then
-        for folder in home_folders
+    folders = root_dir.get_folders
+    if folders != null then
+        for folder in folders
             if folder.name == "root" and folder.has_permission("r") then
                 return "root"
             end if
@@ -855,8 +583,9 @@ AutoHacker.determine_file_user = function(file_obj)
 
     // --- Step 3: If not root, check for access to /home user folders ---
     home_dir = null
-    if home_folders != null then
-        for folder in home_folders
+    folders = root_dir.get_folders
+    if folders != null then
+        for folder in folders
             if folder.name == "home" then
                 home_dir = folder
                 break
@@ -1166,9 +895,7 @@ AutoHacker.hack = function(target_ip)
                         print("        Got a " + session_type + "! Storing session for user '" + user_context + "'.")
                         new_session = {"type":session_type, "user":user_context, "object":result, "ip":target_ip}
                         sessions.push(new_session)
-
-                        // Run AutoLoot immediately after getting the session
-                        AutoLoot.run(new_session)
+                        Looter.run(new_session)
                     else
                         print("        Exploit returned a " + session_type + ". Not an interactive session.")
                     end if
@@ -1181,54 +908,8 @@ AutoHacker.hack = function(target_ip)
     return sessions
 end function
 
-// Cracks passwords from the content of a passwd file.
-AutoHacker.crack_passwords_from_content = function(content, target_ip)
-    if content == null or content == "" then return 0
-
-    crypto = include_lib("/lib/crypto.so")
-    if crypto == null then
-        print("        [AutoLoot] Crypto library not found. Cannot decipher passwords.")
-        return 0
-    end if
-
-    lines = content.split(char(10))
-    cracked_count = 0
-    for line in lines
-        if line == "" then continue
-        parts = line.split(":")
-        if parts.len < 2 then continue
-
-        username = parts[0]
-        hash = parts[1]
-
-        if hash != "x" and hash != "" then
-            // Check if we already cracked this
-            host_data = Database.get_host(target_ip)
-            already_cracked = false
-            if host_data != null then
-                for cred in host_data.credentials
-                    if cred.type == "user" and cred.user == username then
-                        already_cracked = true
-                        break
-                    end if
-                end for
-            end if
-
-            if not already_cracked then
-                password = crypto.decipher(hash)
-                if password != null then
-                    print("          [!!!] Cracked: " + username + ":" + password)
-                    Database.add_credential(target_ip, "user", username, password)
-                    cracked_count = cracked_count + 1
-                end if
-            end if
-        end if
-    end for
-    return cracked_count
-end function
-
-// Helper function to crack passwords from /etc/passwd using a shell session.
-// This is now a wrapper for the content-based cracker.
+// Helper function to crack passwords from /etc/passwd if we get a shell.
+// This logic will be moved to the interactive shell handler later.
 AutoHacker.crack_passwords = function(shell, target_ip)
     computer = shell.host_computer
     if computer == null then return
@@ -1240,8 +921,32 @@ AutoHacker.crack_passwords = function(shell, target_ip)
     end if
 
     content = passwd_file.get_content
+    if content == null or content == "" then return
+
     print("        Cracking hashes from /etc/passwd...")
-    AutoHacker.crack_passwords_from_content(content, target_ip)
+    crypto = include_lib("/lib/crypto.so")
+    if crypto == null then
+        print("        Crypto library not found. Cannot decipher passwords.")
+        return
+    end if
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":")
+        if parts.len < 2 then continue
+
+        username = parts[0]
+        hash = parts[1]
+
+        if hash != "x" and hash != "" then
+            password = crypto.decipher(hash)
+            if password != null then
+                print("          [!!!] Cracked: " + username + ":" + password)
+                Database.add_credential(target_ip, "user", username, password)
+            end if
+        end if
+    end for
 end function
 
 AntiForensics = {}
