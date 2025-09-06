@@ -44,6 +44,7 @@ print_help = function()
     print("  scan [ip]      - Scans a target IP for open ports and services.")
     print("  hack [ip]      - Scans and attempts to exploit a target IP.")
     print("  radar          - Starts the security radar to monitor your system.")
+    print("  bank show      - Shows all collected bank account information.")
     print("  help           - Shows this help message.")
     print("  exit           - Exits the tool.")
     print("")
@@ -198,6 +199,7 @@ end function
 // Main function and command loop for the tool.
 main = function()
     Database.init()
+    BankDatabase.init()
 
     print("----------------------------------------------------")
     print("  Welcome to the All-In-One Hacking Tool (AIO)")
@@ -231,6 +233,12 @@ main = function()
             end if
         else if command == "radar" then
             SecurityRadar.start()
+        else if command == "bank" then
+            if parts.len > 1 and parts[1].lower == "show" then
+                BankManager.show()
+            else
+                print("Usage: bank show")
+            end if
         else if command == "help" then
             print_help()
         else if command == "exit" then
@@ -244,6 +252,86 @@ end function
 // ================================================================
 //  Modules
 // ================================================================
+
+// ================================================================
+//  Bank Database Module
+// ================================================================
+BankManager = {}
+BankManager.show = function()
+    print("")
+    print("--- Bank Account Database ---")
+    if BankDatabase.data.len == 0 then
+        print("  (No accounts stored)")
+    else
+        for entry in BankDatabase.data
+            line = "  - User: " + entry.user + ", Hash: " + entry.raw_hash + ", Cracked: " + entry.cracked_pass
+            print(line)
+        end for
+    end if
+    print("-----------------------------")
+end function
+
+BankDatabase = {}
+BankDatabase.data = []
+
+BankDatabase.init = function()
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File("/root/bank_database.txt")
+
+    if db_file == null then
+        print("Bank database not found. Creating a new one...")
+        host_computer.touch("/root", "bank_database.txt")
+    end if
+    BankDatabase.load()
+end function
+
+BankDatabase.load = function()
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File("/root/bank_database.txt")
+    if db_file == null then return
+
+    content = db_file.get_content
+    if content == null or content == "" then return
+
+    lines = content.split(char(10))
+    for line in lines
+        if line == "" then continue
+        parts = line.split(":")
+        if parts.len < 3 then continue
+
+        BankDatabase.data.push({"user": parts[0], "raw_hash": parts[1], "cracked_pass": parts[2]})
+    end for
+end function
+
+BankDatabase.save = function()
+    lines = []
+    for entry in BankDatabase.data
+        line = entry.user + ":" + entry.raw_hash + ":" + entry.cracked_pass
+        lines.push(line)
+    end for
+
+    host_computer = get_shell.host_computer
+    db_file = host_computer.File("/root/bank_database.txt")
+    if db_file == null then return
+
+    // Use [0] to handle GreyScript's join() quirk
+    result = db_file.set_content(lines.join(char(10))[0])
+    if result != 1 then
+        print("Error: Failed to save bank database!")
+    end if
+end function
+
+BankDatabase.add_entry = function(user, raw_hash, cracked_pass)
+    // Avoid duplicates
+    for entry in BankDatabase.data
+        if entry.user == user and entry.raw_hash == raw_hash then
+            return // Entry already exists
+        end if
+    end for
+
+    BankDatabase.data.push({"user": user, "raw_hash": raw_hash, "cracked_pass": cracked_pass})
+    BankDatabase.save()
+end function
 
 SecurityRadar = {}
 SecurityRadar.last_log_size = 0
@@ -430,15 +518,11 @@ Looter.parse_and_crack_bank = function(content)
         user_domain_str = line_parts[0]
         hash_to_decipher = line_parts[1]
 
-        last_hyphen_index = user_domain_str.lastIndexOf("-")
-        if last_hyphen_index == -1 or last_hyphen_index == 0 then continue
-
-        user = user_domain_str[0:last_hyphen_index]
-        domain = user_domain_str[last_hyphen_index+1:]
+        user = user_domain_str
 
         cracked_pass = crypto.decipher(hash_to_decipher)
         if cracked_pass != null then
-            print("    - Cracked Bank.txt -> User: " + user + ", Domain: " + domain + ", Pass: " + cracked_pass)
+            BankDatabase.add_entry(user, hash_to_decipher, cracked_pass)
         end if
     end for
 end function
@@ -908,42 +992,21 @@ AutoHacker.hack = function(target_ip)
     return sessions
 end function
 
-// Helper function to crack passwords from /etc/passwd if we get a shell.
-// This logic will be moved to the interactive shell handler later.
-AutoHacker.crack_passwords = function(shell, target_ip)
-    computer = shell.host_computer
-    if computer == null then return
-
-    passwd_file = computer.File("/etc/passwd")
-    if passwd_file == null or not passwd_file.has_permission("r") then
-        print("        Could not read /etc/passwd. Aborting password crack.")
-        return
-    end if
-
-    content = passwd_file.get_content
-    if content == null or content == "" then return
-
-    print("        Cracking hashes from /etc/passwd...")
+Looter.parse_and_crack_passwd = function(content)
     crypto = include_lib("/lib/crypto.so")
-    if crypto == null then
-        print("        Crypto library not found. Cannot decipher passwords.")
-        return
-    end if
+    if crypto == null then return
 
     lines = content.split(char(10))
     for line in lines
         if line == "" then continue
         parts = line.split(":")
         if parts.len < 2 then continue
-
         username = parts[0]
         hash = parts[1]
-
         if hash != "x" and hash != "" then
             password = crypto.decipher(hash)
             if password != null then
-                print("          [!!!] Cracked: " + username + ":" + password)
-                Database.add_credential(target_ip, "user", username, password)
+                print("    - Cracked /etc/passwd -> " + username + ":" + password)
             end if
         end if
     end for
