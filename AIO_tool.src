@@ -403,27 +403,36 @@ end function
 UniversalScanner.scanlan = function(target_ip)
 	print_info("Scanning LAN for router at " + target_ip + "...")
 
-	my_router = get_router(null)
+	my_router = get_router() // Correct way to get the player's router
 	if my_router == null then
-		print_error("Could not determine your current network connection.")
+		print_error("Could not determine your current network connection. Are you connected to a network?")
 		return
 	end if
 
-	if my_router.public_ip != target_ip then
-		print_error("LAN scan failed. You must be connected to the target router's network to scan its LAN.")
-		print_alert("Your current public IP is " + my_router.public_ip)
+	// Check if the target IP matches either the public or local IP of our current router
+	if my_router.public_ip != target_ip and my_router.local_ip != target_ip then
+		print_error("LAN scan failed. You can only scan the LAN of the router you are currently connected to.")
+		print_alert("Your current router's IPs are " + my_router.public_ip + " (public) and " + my_router.local_ip + " (local).")
 		return
 	end if
 
 	lan_ips = my_router.computers_lan_ip
-	if lan_ips == null or lan_ips.len == 0 then
+	my_lan_ip = get_shell.host_computer.lan_ip
+
+	// Filter out the player's own computer from the list
+	other_devices = []
+	for ip in lan_ips
+		if ip != my_lan_ip then other_devices.push(ip)
+	end for
+
+	if other_devices.len == 0 then
 		print_alert("No other devices found on your current LAN.")
 		return
 	end if
 
-	print_success("Found " + lan_ips.len + " other devices on the LAN:")
+	print_success("Found " + other_devices.len + " other devices on the LAN:")
 	output = "IP_ADDRESS OPEN_PORTS"
-	for ip in lan_ips
+	for ip in other_devices
 		ports = my_router.device_ports(ip)
 		port_str = ""
 		if ports and ports.len > 0 then
