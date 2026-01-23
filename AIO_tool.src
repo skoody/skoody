@@ -405,21 +405,26 @@ UniversalScanner.scanlan = function()
 		return
 	end if
 
-	// The correct way to get the router is through the public IP of our computer
-	my_router = get_router(my_computer.public_ip)
+	// Per the documentation, get_router() with no arguments returns the
+	// router the user is currently connected to.
+	my_router = get_router()
 
-	if my_router == null or not my_router.hasIndex("computers_lan_ip") then
-		print_error("Could not retrieve LAN information from your current connection.")
+	if my_router == null then
+		print_error("Could not get a handle on your local router. Are you sure you're connected?")
 		return
 	end if
 
 	lan_ips = my_router.computers_lan_ip
-	// The computer object only gets a lan_ip *after* being connected to a network.
 	my_lan_ip = my_computer.lan_ip
 
 	if my_lan_ip == null or my_lan_ip == "" then
-	    print_error("Could not determine your own LAN IP. Cannot perform scan.")
+	    print_error("Could not determine your own LAN IP. This should not happen if you are connected.")
 	    return
+	end if
+
+	if lan_ips == null or lan_ips.len == 0 then
+		print_alert("Could not find any devices on the LAN.")
+		return
 	end if
 
 	// Filter out the player's own computer from the list
@@ -436,12 +441,10 @@ UniversalScanner.scanlan = function()
 	print_success("Found " + other_devices.len + " other devices on the LAN:")
 	output = "IP_ADDRESS OPEN_PORTS"
 	for ip in other_devices
-		// We use our router object to query for the ports of other devices on the same LAN
 		ports = my_router.device_ports(ip)
 		port_str = ""
 		if ports and ports.len > 0 then
 			for port in ports
-				// Check if port object is valid and has a port_number property
 				if port and port.hasIndex("port_number") then
 					port_str = port_str + port.port_number + " "
 				end if
