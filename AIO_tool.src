@@ -447,14 +447,19 @@ UniversalScanner.scanlan = function()
 	print_success("Found " + other_devices.len + " other devices on the LAN:")
 	output = "IP_ADDRESS OPEN_PORTS"
 	for ip in other_devices
-		ports = my_router.device_ports(ip)
+		// For each discovered IP, perform a proper port scan just like the main `scan` command.
+		device_router = get_router(ip)
 		port_str = ""
-		if ports and ports.len > 0 then
-			for port in ports
-				if port and port.hasIndex("port_number") then
-					port_str = port_str + port.port_number + " "
-				end if
-			end for
+
+		if device_router and device_router.hasIndex("used_ports") then
+			ports = device_router.used_ports
+			if ports and ports.len > 0 then
+				for port in ports
+					if port and not port.is_closed then
+						port_str = port_str + port.port_number + " "
+					end if
+				end for
+			end if
 		end if
 
 		if port_str == "" then port_str = "None"
