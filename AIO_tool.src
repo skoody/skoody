@@ -403,27 +403,28 @@ end function
 UniversalScanner.scanlan = function(target_ip)
 	print_info("Scanning LAN for router at " + target_ip + "...")
 
-	router = get_router(target_ip)
-	if router == null then
-		print_error("Could not get router for IP " + target_ip + ". Is the IP a valid router?")
+	my_router = get_router(null)
+	if my_router == null then
+		print_error("Could not determine your current network connection.")
 		return
 	end if
 
-	if not router.hasIndex("computers_lan_ip") then
-		print_error("Target " + target_ip + " is not a router with a LAN or you don't have the necessary permissions.")
+	if my_router.public_ip != target_ip then
+		print_error("LAN scan failed. You must be connected to the target router's network to scan its LAN.")
+		print_alert("Your current public IP is " + my_router.public_ip)
 		return
 	end if
 
-	lan_ips = router.computers_lan_ip
+	lan_ips = my_router.computers_lan_ip
 	if lan_ips == null or lan_ips.len == 0 then
-		print_alert("No devices found on the LAN of " + target_ip)
+		print_alert("No other devices found on your current LAN.")
 		return
 	end if
 
-	print_success("Found " + lan_ips.len + " devices on the LAN:")
+	print_success("Found " + lan_ips.len + " other devices on the LAN:")
 	output = "IP_ADDRESS OPEN_PORTS"
 	for ip in lan_ips
-		ports = router.device_ports(ip)
+		ports = my_router.device_ports(ip)
 		port_str = ""
 		if ports and ports.len > 0 then
 			for port in ports
