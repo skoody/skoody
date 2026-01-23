@@ -405,34 +405,32 @@ UniversalScanner.scanlan = function()
 		return
 	end if
 
-	// The following logic is based on code review feedback and adheres
-	// strictly to the `codedocs.ghtools.xyz` documentation.
+	// 1. Get the Gateway IP from the computer. This is the router's LAN IP.
+	gateway_ip = my_computer.network_gateway()
+	if gateway_ip == null or gateway_ip == "" then
+		print_error("Could not determine this network's gateway IP. Cannot scan LAN.")
+		return
+	end if
 
-	// 1. Get the player's own LAN IP using the `local_ip()` function, as per greyscript.net docs.
+	// 2. Use the Gateway IP to get the router object.
+	my_router = get_router(gateway_ip)
+	if my_router == null then
+		print_error("Could not get router object using gateway IP: " + gateway_ip)
+		return
+	end if
+
+	// 3. Get the list of devices using the `devices_lan_ip()` function.
+	lan_ips = my_router.devices_lan_ip()
+	if lan_ips == null then
+		print_error("Could not retrieve device list from router. The 'devices_lan_ip()' function may not be available.")
+		return
+	end if
+
+	// 4. Get our own IP for filtering.
 	my_lan_ip = my_computer.local_ip()
 	if my_lan_ip == null or my_lan_ip == "" then
-		print_error("Could not retrieve this computer's LAN IP from the `local_ip()` function. Cannot proceed.")
-		return
-	end if
-
-	// 2. Use the player's LAN IP to get the router object for the local network.
-	// This is intended to provide a correctly scoped router object.
-	my_router = get_router(my_lan_ip)
-	if my_router == null then
-		print_error("Could not get router object using LAN IP: " + my_lan_ip)
-		return
-	end if
-
-	// 3. Get the list of devices from the router's `computers_lan_ip` property.
-	if not my_router.hasIndex("computers_lan_ip") then
-		print_error("Router object for " + my_lan_ip + " does not have the 'computers_lan_ip' property.")
-		return
-	end if
-	lan_ips = my_router.computers_lan_ip
-
-	if lan_ips == null or lan_ips.len == 0 then
-		print_alert("No devices found on the LAN.")
-		return
+	    print_error("Could not determine your own LAN IP via local_ip().")
+	    return
 	end if
 
 	// Filter out the player's own computer from the list
