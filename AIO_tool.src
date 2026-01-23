@@ -207,12 +207,12 @@ end function
 main = function()
     Database.init()
 
-    print(char(10) + "<color=red><b>" + " ".repeat(15) + "AIO Hacking Tool" + " ".repeat(15) + "</b></color>")
-	print("<b><color=red>" + "-".repeat(50) + "</color></b>")
+    print(char(10) + "<color=red><b>" + "               " + "AIO Hacking Tool" + "               " + "</b></color>")
+	print("<b><color=red>" + "--------------------------------------------------" + "</color></b>")
 	print("  Welcome to the All-In-One Hacking Tool (AIO)")
 	print("  Version: 1.1.0")
 	print("  Type 'help' for a list of commands.")
-	print("<b><color=red>" + "-".repeat(50) + "</color></b>")
+	print("<b><color=red>" + "--------------------------------------------------" + "</color></b>")
 
 
     while true
