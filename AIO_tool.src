@@ -189,7 +189,6 @@ end function
 Database.add_file = function(ip, filepath, content)
     if not Database.host_exists(ip) then Database.add_host(ip)
     Database.data.hosts[ip].files.push({"path":filepath,"content":content})
-    Database.save()
 end function
 
 // Adds a port to a host.
@@ -203,7 +202,6 @@ end function
 Database.add_credential = function(ip, type, user, pass)
      if not Database.host_exists(ip) then Database.add_host(ip)
      Database.data.hosts[ip].credentials.push({"type":type,"user":user,"pass":pass})
-     Database.save()
 end function
 
 // Main function and command loop for the tool.
@@ -411,6 +409,11 @@ UniversalScanner.scanlan = function(target_ip)
 		return
 	end if
 
+	if not router.hasIndex("computers_lan_ip") then
+		print_error("Target " + target_ip + " is not a router with a LAN or you don't have the necessary permissions.")
+		return
+	end if
+
 	lan_ips = router.computers_lan_ip
 	if lan_ips == null or lan_ips.len == 0 then
 		print_alert("No devices found on the LAN of " + target_ip)
@@ -565,6 +568,7 @@ AutoHacker.hack = function(target_ip)
 
                         AutoHacker.create_backdoor(result, target_ip)
                         AntiForensics.clean(result)
+                        Database.save()
                         print_success("--- Hack finished on " + target_ip + " ---")
                         return
                     else if typeof(result) == "file" then
@@ -575,6 +579,7 @@ AutoHacker.hack = function(target_ip)
                             print_info("        File path: " + filepath)
                             print_info("        File content: " + content)
                             Database.add_file(target_ip, filepath, content)
+                            Database.save()
                             print_success("        File saved to database.")
                         else
                             print_alert("        Got file at '" + filepath + "' but don't have read permissions.")
