@@ -60,7 +60,7 @@ print_help = function()
     print("")
     print("<b>AIO Tool Commands:</b>")
     print("  scan [ip]          - Scans a target IP for open ports and services.")
-    print("  scanlan [ip]       - Scans the LAN of a target router IP.")
+    print("  scanlan            - Scans your current LAN for other devices.")
     print("  hack [ip]          - Scans and attempts to exploit a target IP.")
     print("  find [ip] [pattern]- Searches for files on a target IP (requires shell access).")
     print("  radar              - Starts the security radar to monitor your system.")
@@ -230,11 +230,7 @@ main = function()
                 UniversalScanner.scan(parts[1])
             end if
         else if command == "scanlan" then
-            if parts.len < 2 then
-                print_error("Usage: scanlan [target_ip]")
-            else
-                UniversalScanner.scanlan(parts[1])
-            end if
+            UniversalScanner.scanlan()
         else if command == "hack" then
             if parts.len < 2 then
                 print_error("Usage: hack [target_ip]")
@@ -400,24 +396,26 @@ UniversalScanner.scan = function(target_ip)
     print_success("Scan complete for " + target_ip)
 end function
 
-UniversalScanner.scanlan = function(target_ip)
-	print_info("Scanning LAN for router at " + target_ip + "...")
+UniversalScanner.scanlan = function()
+	print_info("Scanning current LAN for devices...")
 
-	my_router = get_router() // Correct way to get the player's router
-	if my_router == null then
-		print_error("Could not determine your current network connection. Are you connected to a network?")
+	my_computer = get_shell.host_computer
+	if not my_computer.is_network_active then
+		print_error("You are not connected to any network.")
 		return
 	end if
 
-	// Check if the target IP matches either the public or local IP of our current router
-	if my_router.public_ip != target_ip and my_router.local_ip != target_ip then
-		print_error("LAN scan failed. You can only scan the LAN of the router you are currently connected to.")
-		print_alert("Your current router's IPs are " + my_router.public_ip + " (public) and " + my_router.local_ip + " (local).")
+	// The correct way to get the router object that holds LAN info
+	// is through the host computer's network devices.
+	my_router = get_router(my_computer.lan_ip)
+
+	if my_router == null or not my_router.hasIndex("computers_lan_ip") then
+		print_error("Could not retrieve LAN information from your current connection.")
 		return
 	end if
 
 	lan_ips = my_router.computers_lan_ip
-	my_lan_ip = get_shell.host_computer.lan_ip
+	my_lan_ip = my_computer.lan_ip
 
 	// Filter out the player's own computer from the list
 	other_devices = []
@@ -445,7 +443,7 @@ UniversalScanner.scanlan = function(target_ip)
 		output = output + char(10) + ip + " " + port_str
 	end for
 	print(format_columns(output))
-	print_success("LAN scan complete for " + target_ip)
+	print_success("LAN scan complete.")
 end function
 
 AutoHacker = {}
