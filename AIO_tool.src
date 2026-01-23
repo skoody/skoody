@@ -408,10 +408,10 @@ UniversalScanner.scanlan = function()
 	// The following logic is based on code review feedback and adheres
 	// strictly to the `codedocs.ghtools.xyz` documentation.
 
-	// 1. Get the player's own LAN IP from the computer object.
-	my_lan_ip = my_computer.lan_ip
+	// 1. Get the player's own LAN IP using the `local_ip()` function, as per greyscript.net docs.
+	my_lan_ip = my_computer.local_ip()
 	if my_lan_ip == null or my_lan_ip == "" then
-		print_error("Could not retrieve this computer's LAN IP from the 'lan_ip' property. Cannot proceed.")
+		print_error("Could not retrieve this computer's LAN IP from the `local_ip()` function. Cannot proceed.")
 		return
 	end if
 
