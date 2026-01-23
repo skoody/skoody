@@ -22,7 +22,6 @@
 // ================================================================
 
 Database = {}
-DB_FILE_PATH = "/root/aio_database.txt"
 
 // ================================================================
 //  Database Module
@@ -76,14 +75,20 @@ end function
 
 Database.data = {}
 
+// Gets the dynamic path for the database file.
+Database.get_db_path = function()
+    return home_dir + "/aio_database.txt"
+end function
+
 // Initializes the database: creates the file if it doesn't exist and loads it.
 Database.init = function()
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_path = Database.get_db_path()
+    db_file = host_computer.File(db_path)
 
     if db_file == null then
         print_info("Database file not found. Creating a new one...")
-        host_computer.touch("/root", "aio_database.txt")
+        host_computer.touch(parent_path(db_path), "aio_database.txt")
     end if
 
     Database.load()
@@ -94,7 +99,7 @@ end function
 Database.load = function()
     Database.data = {"hosts":{}}
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_file = host_computer.File(Database.get_db_path())
     if db_file == null then return
 
     content = db_file.get_content
@@ -156,7 +161,7 @@ Database.save = function()
     end for
 
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_file = host_computer.File(Database.get_db_path())
     result = db_file.set_content(lines.join(char(10)))
     if result != 1 then
         print_error("Failed to save database!")
@@ -178,7 +183,6 @@ end function
 Database.add_host = function(ip)
     if Database.host_exists(ip) then return
     Database.data.hosts[ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
-    Database.save()
 end function
 
 // Adds a found file to a host's record.
@@ -193,7 +197,6 @@ Database.add_port = function(ip, port, service)
     if not Database.host_exists(ip) then Database.add_host(ip)
     Database.data.hosts[ip].ports[str(port)] = service
     Database.data.hosts[ip].last_scanned = current_date
-    Database.save()
 end function
 
 // Adds credentials to a host.
@@ -391,11 +394,11 @@ UniversalScanner.scan = function(target_ip)
 
     if not found_ports then
         print_alert("No open ports found on " + target_ip)
-        Database.add_host(target_ip)
-        Database.data.hosts[target_ip].last_scanned = current_date
-        Database.save()
+        Database.add_host(target_ip) // Add host to DB even if no ports are open, to avoid re-scanning
     end if
 
+    Database.data.hosts[target_ip].last_scanned = current_date
+    Database.save()
     print_success("Scan complete for " + target_ip)
 end function
 
