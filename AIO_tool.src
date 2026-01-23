@@ -405,8 +405,7 @@ UniversalScanner.scanlan = function()
 		return
 	end if
 
-	// Per the documentation, get_router() with no arguments returns the
-	// router the user is currently connected to.
+	// Get the router we are currently connected to.
 	my_router = get_router()
 
 	if my_router == null then
@@ -414,7 +413,8 @@ UniversalScanner.scanlan = function()
 		return
 	end if
 
-	lan_ips = my_router.computers_lan_ip
+	// The correct, documented function for discovering devices on the LAN is `devices_lan_ip()`.
+	lan_ips = my_router.devices_lan_ip()
 	my_lan_ip = my_computer.lan_ip
 
 	if my_lan_ip == null or my_lan_ip == "" then
