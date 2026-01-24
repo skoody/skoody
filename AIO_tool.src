@@ -63,6 +63,7 @@ print_help = function()
     print("  scanlan            - Scans your current LAN for other devices.")
     print("  hack [ip]          - Scans and attempts to exploit a target IP.")
     print("  find [ip] [pattern]- Searches for files on a target IP (requires shell access).")
+    print("  loot [ip]          - Displays all collected data (creds, files) for a target.")
     print("  radar              - Starts the security radar to monitor your system.")
     print("  help               - Shows this help message.")
     print("  exit               - Exits the tool.")
@@ -204,6 +205,45 @@ Database.add_credential = function(ip, type, user, pass)
      Database.data.hosts[ip].credentials.push({"type":type,"user":user,"pass":pass})
 end function
 
+// Prints all collected loot for a specific IP.
+Database.print_loot = function(ip)
+    if not Database.host_exists(ip) then
+        print_alert("No data found for IP: " + ip + ". Try scanning or hacking it first.")
+        return
+    end if
+
+    host_data = Database.get_host(ip)
+    print_info("--- Loot for " + ip + " ---")
+
+    // Print Credentials
+    if host_data.credentials and host_data.credentials.len > 0 then
+        print_success("Found " + host_data.credentials.len + " credentials:")
+        output = "TYPE USERNAME PASSWORD"
+        for cred in host_data.credentials
+            output = output + char(10) + cred.type + " " + cred.user + " " + cred.pass
+        end for
+        print(format_columns(output))
+    else
+        print_alert("No credentials found for this host.")
+    end if
+
+    print("") // Spacer
+
+    // Print Files
+    if host_data.files and host_data.files.len > 0 then
+        print_success("Found " + host_data.files.len + " saved files:")
+        for file in host_data.files
+            print("<color=yellow><b>--- File: " + file.path + " ---</b></color>")
+            print(file.content)
+            print("<color=yellow><b>--- End of File ---</b></color>" + char(10))
+        end for
+    else
+        print_alert("No saved files found for this host.")
+    end if
+
+    print_info("--- End of Loot ---")
+end function
+
 // Main function and command loop for the tool.
 main = function()
     Database.init()
@@ -243,6 +283,12 @@ main = function()
 			else
 				FileFinder.search(parts[1], parts[2])
 			end if
+        else if command == "loot" then
+            if parts.len < 2 then
+                print_error("Usage: loot [target_ip]")
+            else
+                Database.print_loot(parts[1])
+            end if
         else if command == "radar" then
             SecurityRadar.start()
         else if command == "help" then
