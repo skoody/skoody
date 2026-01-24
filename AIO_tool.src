@@ -784,10 +784,6 @@ end function
 
 AutoHacker.create_backdoor = function(shell, target_ip)
     print_info("        Attempting to create a backdoor user...")
-    if shell.user != "root" then
-        print_alert("        Cannot create a backdoor user without root privileges.")
-        return
-    end if
 
     backdoor_user = "svc_" + AutoHacker.generate_password(6)
     backdoor_pass = AutoHacker.generate_password(12)
