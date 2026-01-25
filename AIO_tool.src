@@ -53,27 +53,32 @@ end function
 
 // Generates the dynamic, Kali-style prompt.
 get_dynamic_prompt = function()
-    main_color = "#990000"
-    info_color = "#00BFFF"
+    user_color = "#00BFFF"
     path_color = "#FFFFFF"
+    prompt_color = "#990000"
 
-    // Determine username and permission level
+    // 1. Determine username and prompt symbol
     username = "user"
-    permission = "user"
+    prompt_symbol = "$"
     current_home = home_dir
+
     if current_home == "/root" then
         username = "root"
-        permission = "root"
+        prompt_symbol = "#"
     else if current_home.indexOf("/home/") == 0 then
         parts = current_home.split("/")
         username = parts[parts.len - 1]
     end if
 
-    // Get current path
-    current_path = current_path or ""
+    // 2. Format the path
+    path_display = current_path or ""
+    if path_display == current_home then
+        path_display = "~"
+    end if
 
-    line1 = "<color=" + main_color + ">|--(<color=" + info_color + ">" + username + "<color=" + main_color + ">)--(<color=" + info_color + ">" + permission + "<color=" + main_color + ">)--[<color=" + path_color + ">" + current_path + "<color=" + main_color + ">]"
-    line2 = "<color=" + main_color + ">|____:<color=" + path_color + "># "
+    // 3. Construct the prompt lines
+    line1 = "<color=" + prompt_color + "><b>┌──(</b></color>" + "<color=" + user_color + "><b>" + username + "㉿AIO</b></color>" + "<color=" + prompt_color + "><b>)-[</b></color>" + "<color=" + path_color + "><b>" + path_display + "</b></color>" + "<color=" + prompt_color + "><b>]</b></color>"
+    line2 = "<color=" + prompt_color + "><b>└─</b></color>" + "<color=" + path_color + "><b>" + prompt_symbol + " </b></color>"
 
     return char(10) + line1 + char(10) + line2
 end function
