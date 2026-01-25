@@ -73,7 +73,7 @@ get_dynamic_prompt = function()
     end if
 
     // Get current path
-    current_path = get_shell.current_path
+    current_path = get_shell.path
 
     line1 = "<color=" + main_color + ">|--(<color=" + info_color + ">" + username + "<color=" + main_color + ">)--(<color=" + info_color + ">" + permission + "<color=" + main_color + ">)--[<color=" + path_color + ">" + current_path + "<color=" + main_color + ">]"
     line2 = "<color=" + main_color + ">|____:<color=" + path_color + "># "
