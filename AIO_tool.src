@@ -76,9 +76,9 @@ get_dynamic_prompt = function()
         path_display = "~"
     end if
 
-    // 3. Construct the prompt lines
-    line1 = "<color=" + prompt_color + "><b>┌──(</b></color>" + "<color=" + user_color + "><b>" + username + "㉿AIO</b></color>" + "<color=" + prompt_color + "><b>)-[</b></color>" + "<color=" + path_color + "><b>" + path_display + "</b></color>" + "<color=" + prompt_color + "><b>]</b></color>"
-    line2 = "<color=" + prompt_color + "><b>└─</b></color>" + "<color=" + path_color + "><b>" + prompt_symbol + " </b></color>"
+    // 3. Construct the prompt lines using compatible ASCII
+    line1 = "<color=" + prompt_color + "><b>|--(" + "</b></color>" + "<color=" + user_color + "><b>" + username + "@AIO" + "</b></color>" + "<color=" + prompt_color + "><b>" + ")-[" + "</b></color>" + "<color=" + path_color + "><b>" + path_display + "</b></color>" + "<color=" + prompt_color + "><b>" + "]" + "</b></color>"
+    line2 = "<color=" + prompt_color + "><b>|-->" + "</b></color>" + "<color=" + path_color + "><b>" + " " + prompt_symbol + " " + "</b></color>"
 
     return char(10) + line1 + char(10) + line2
 end function
