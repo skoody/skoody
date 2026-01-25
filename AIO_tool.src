@@ -71,14 +71,20 @@ get_dynamic_prompt = function()
     end if
 
     // 2. Format the path
-    path_display = current_path or ""
+    path_display = ""
+    if typeof(current_path) == "string" then
+        path_display = current_path
+    else
+        path_display = "/" // Safe default for non-string paths
+    end if
+
     if path_display == current_home then
         path_display = "~"
     end if
 
-    // 3. Construct the prompt with consolidated tags for a smoother look
-    line1 = "<b>" + "<color=" + prompt_color + ">|--(" + "</color>" + "<color=" + user_color + ">" + username + "@AIO" + "</color>" + "<color=" + prompt_color + ">)-[" + "</color>" + "<color=" + path_color + ">" + path_display + "</color>" + "<color=" + prompt_color + ">]" + "</color>" + "</b>"
-    line2 = "<b>" + "<color=" + prompt_color + ">|-->" + "</color>" + "<color=" + path_color + "> " + prompt_symbol + " </color>" + "</b>"
+    // 3. Construct the prompt with a more authentic Kali look
+    line1 = "<b>" + "<color=" + prompt_color + ">.---(" + "</color>" + "<color=" + user_color + ">" + username + "@AIO" + "</color>" + "<color=" + prompt_color + ">)-[" + "</color>" + "<color=" + path_color + ">" + path_display + "</color>" + "<color=" + prompt_color + ">]" + "</color>" + "</b>"
+    line2 = "<b>" + "<color=" + prompt_color + ">\\-->" + "</color>" + "<color=" + path_color + "> " + prompt_symbol + " </color>" + "</b>"
 
     return char(10) + line1 + char(10) + line2
 end function
