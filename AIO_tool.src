@@ -55,6 +55,32 @@ print_info = function(message)
 	print("<color=#00BFFF><b>[*] " + message + "</b></color>")
 end function
 
+// Generates the dynamic, Kali-style prompt.
+get_dynamic_prompt = function()
+    main_color = "#990000"
+    info_color = "#00BFFF"
+    path_color = "#FFFFFF"
+
+    // Determine username and permission level
+    username = "user"
+    permission = "user"
+    current_home = home_dir
+    if current_home == "/root" then
+        username = "root"
+        permission = "root"
+    else if current_home.indexOf("/home/") == 0 then
+        username = current_home.split("/")[-1]
+    end if
+
+    // Get current path
+    current_path = get_shell.current_path
+
+    line1 = "<color=" + main_color + ">|--(<color=" + info_color + ">" + username + "<color=" + main_color + ">)--(<color=" + info_color + ">" + permission + "<color=" + main_color + ">)--[<color=" + path_color + ">" + current_path + "<color=" + main_color + ">]"
+    line2 = "<color=" + main_color + ">|____:<color=" + path_color + "># "
+
+    return char(10) + line1 + char(10) + line2
+end function
+
 // Prints the help message for the tool.
 print_help = function()
     print("")
@@ -265,7 +291,7 @@ main = function()
 
 
     while true
-        input = user_input(char(10) + "<color=#990000>AIO</color> > ")
+        input = user_input(get_dynamic_prompt())
         if input == null or input == "" then continue
 
         parts = input.split(" ")
