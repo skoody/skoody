@@ -1,0 +1,75 @@
+// GreyChat Bot - v1.0
+// Monitors a chat channel for user joins and leaves.
+
+// --- Configuration ---
+CHAT_CHANNEL = "GreyChat" // The name of the channel to join
+BOT_NAME = "Clover"      // The name the bot will use to speak
+
+// --- State ---
+last_users = []
+is_first_run = true
+
+// --- Helper Functions ---
+// Function to check if a user is in a list
+list_contains = function(list, user)
+    for item in list
+        if item == user then return true
+    end for
+    return false
+end function
+
+// --- Main Loop ---
+main = function()
+    print("Starting " + BOT_NAME + " Bot for channel: " + CHAT_CHANNEL)
+
+    // Get the chat service
+    chat_service = get_shell.host_computer.get_service("chat")
+    if chat_service == null then
+        print("Error: Could not get chat service.")
+        return
+    end if
+
+    // Join the channel
+    chat_service.join(CHAT_CHANNEL)
+    print("Joined channel: " + CHAT_CHANNEL)
+
+    while true
+        current_users = chat_service.get_users(CHAT_CHANNEL)
+        if current_users == null then
+            print("Error: Could not get users for channel " + CHAT_CHANNEL)
+            wait(10)
+            continue
+        end if
+
+        // On the very first run, just populate the list and continue
+        if is_first_run then
+            last_users = current_users
+            is_first_run = false
+            wait(2)
+            continue
+        end if
+
+        // --- Compare user lists ---
+
+        // Check for new users (joins)
+        for user in current_users
+            if not list_contains(last_users, user) then
+                message = "[+] " + user + " (" + current_users.len + " users)"
+                chat_service.send(CHAT_CHANNEL, message)
+            end if
+        end for
+
+        // Check for users who left
+        for user in last_users
+            if not list_contains(current_users, user) then
+                message = "[-] " + user + " (" + current_users.len + " users)"
+                chat_service.send(CHAT_CHANNEL, message)
+            end if
+        end for
+
+        last_users = current_users
+        wait(2) // Check every 2 seconds for faster updates
+    end while
+end function
+
+main()
