@@ -22,7 +22,6 @@
 // ================================================================
 
 Database = {}
-DB_FILE_PATH = "/root/aio_database.txt"
 
 // ================================================================
 //  Database Module
@@ -34,42 +33,108 @@ DB_FILE_PATH = "/root/aio_database.txt"
 
 // Helper to print formatted alerts.
 print_alert = function(message)
-    print("<color=red><b>[!] " + current_date + " - " + message + "</b></color>")
+	print("<color=#FF0000><b>[!] " + message + "</b></color>")
+end function
+
+// Helper to print success messages.
+print_success = function(message)
+	print("<color=#FFFFFF><b>[+] " + message + "</b></color>")
+end function
+
+// Helper to print error messages.
+print_error = function(message)
+	print("<color=#FF0000><b>[-] " + message + "</b></color>")
+end function
+
+// Helper to print info messages.
+print_info = function(message)
+	print("<color=#00BFFF><b>[*] " + message + "</b></color>")
+end function
+
+// Generates the dynamic, Kali-style prompt.
+get_dynamic_prompt = function()
+    user_color = "#00BFFF"
+    path_color = "#FFFFFF"
+    prompt_color = "#990000"
+
+    // 1. Determine username and prompt symbol
+    username = "user"
+    prompt_symbol = "$"
+    current_home = home_dir
+
+    if current_home == "/root" then
+        username = "root"
+        prompt_symbol = "#"
+    else if current_home.indexOf("/home/") == 0 then
+        parts = current_home.split("/")
+        username = parts[parts.len - 1]
+    end if
+
+    // 2. Format the path
+    path_display = ""
+    if typeof(current_path) == "string" then
+        path_display = current_path
+    else
+        path_display = "/" // Safe default for non-string paths
+    end if
+
+    if path_display == current_home then
+        path_display = "~"
+    end if
+
+    // 3. Construct the prompt with a more authentic Kali look
+    line1 = "<b>" + "<color=" + prompt_color + ">.---(" + "</color>" + "<color=" + user_color + ">" + username + "@AIO" + "</color>" + "<color=" + prompt_color + ">)-[" + "</color>" + "<color=" + path_color + ">" + path_display + "</color>" + "<color=" + prompt_color + ">]" + "</color>" + "</b>"
+    line2 = "<b>" + "<color=" + prompt_color + ">\\-->" + "</color>" + "<color=" + path_color + "> " + prompt_symbol + " </color>" + "</b>"
+
+    return char(10) + line1 + char(10) + line2
 end function
 
 // Prints the help message for the tool.
 print_help = function()
     print("")
     print("<b>AIO Tool Commands:</b>")
-    print("  scan [ip]      - Scans a target IP for open ports and services.")
-    print("  hack [ip]      - Scans and attempts to exploit a target IP.")
-    print("  radar          - Starts the security radar to monitor your system.")
-    print("  help           - Shows this help message.")
-    print("  exit           - Exits the tool.")
+    print("  scan [ip]          - Scans a target IP for open ports and services.")
+    print("  scanlan            - Scans your current LAN for other devices.")
+    print("  hack [ip]          - Scans and attempts to exploit a target IP.")
+    print("  find [ip] [pattern]- Searches for files on a target IP (requires shell access).")
+    print("  loot [ip]          - Displays all collected data (creds, files) for a target.")
+    print("  radar              - Starts the security radar to monitor your system.")
+    print("  help               - Shows this help message.")
+    print("  exit               - Exits the tool.")
     print("")
 end function
 
+// ================================================================
+//  Database Module
+// ================================================================
+
 Database.data = {}
+
+// Gets the dynamic path for the database file.
+Database.get_db_path = function()
+    return home_dir + "/aio_database.txt"
+end function
 
 // Initializes the database: creates the file if it doesn't exist and loads it.
 Database.init = function()
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_path = Database.get_db_path()
+    db_file = host_computer.File(db_path)
 
     if db_file == null then
-        print("Database file not found. Creating a new one...")
-        host_computer.touch("/root", "aio_database.txt")
+        print_info("Database file not found. Creating a new one...")
+        host_computer.touch(parent_path(db_path), "aio_database.txt")
     end if
 
     Database.load()
-    print("Database initialized and loaded.")
+    print_success("Database initialized and loaded.")
 end function
 
 // Loads the database from the file using a simple line-based parser.
 Database.load = function()
     Database.data = {"hosts":{}}
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_file = host_computer.File(Database.get_db_path())
     if db_file == null then return
 
     content = db_file.get_content
@@ -86,7 +151,7 @@ Database.load = function()
         if key == "HOST_START" then
             current_host_ip = parts[1]
             if not Database.data.hosts.hasIndex(current_host_ip) then
-                 Database.data.hosts[current_host_ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
+                 Database.data.hosts[current_host_ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null, "access":[]}
             end if
         else if key == "HOST_END" then
             current_host_ip = null
@@ -100,10 +165,12 @@ Database.load = function()
             else if key == "FILE" then
                  decoded_content = parts[2].replace("<NEWLINE>", char(10))
                  Database.data.hosts[current_host_ip].files.push({"path":parts[1],"content":decoded_content})
+            else if key == "ACCESS" then
+                 Database.data.hosts[current_host_ip].access.push({"level":parts[1],"user":parts[2]})
             end if
         end if
     end for
-    print("Database loaded from file.")
+    print_info("Database loaded from file.")
 end function
 
 // Saves the current database state to a file using a simple line-based format.
@@ -127,11 +194,15 @@ Database.save = function()
             lines.push("FILE:" + file.path + ":" + encoded_content)
         end for
 
+        for acc in host.access
+            lines.push("ACCESS:" + acc.level + ":" + acc.user)
+        end for
+
         lines.push("HOST_END:" + ip)
     end for
 
     host_computer = get_shell.host_computer
-    db_file = host_computer.File(DB_FILE_PATH)
+    db_file = host_computer.File(Database.get_db_path())
     result = db_file.set_content(lines.join(char(10)))
     if result != 1 then
         print("Error: Failed to save database!")
@@ -152,7 +223,7 @@ end function
 // Adds a new host to the database.
 Database.add_host = function(ip)
     if Database.host_exists(ip) then return
-    Database.data.hosts[ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null}
+    Database.data.hosts[ip] = {"ports":{},"credentials":[],"files":[],"last_scanned":null, "access":[]}
     Database.save()
 end function
 
@@ -178,18 +249,38 @@ Database.add_credential = function(ip, type, user, pass)
      Database.save()
 end function
 
+// Adds a new access level entry for a host.
+Database.add_access_level = function(ip, level, user)
+    if not Database.host_exists(ip) then Database.add_host(ip)
+    // Avoid duplicate entries for the same user and level
+    for existing_access in Database.data.hosts[ip].access
+        if existing_access.user == user and existing_access.level == level then return
+    end for
+    Database.data.hosts[ip].access.push({"level":level, "user":user})
+    Database.save()
+end function
+
 // Main function and command loop for the tool.
 main = function()
     Database.init()
 
-    print("----------------------------------------------------")
-    print("  Welcome to the All-In-One Hacking Tool (AIO)")
-    print("  Version: 1.0.0")
-    print("  Type 'help' for a list of commands.")
-    print("----------------------------------------------------")
+    print(char(10) + "<color=#FF0000><b>" + "      .d8888b.                   d8b          " + "</b></color>")
+    print("<color=#FF0000><b>" + "     d88P  Y88b                  Y8P          " + "</b></color>")
+    print("<color=#FF0000><b>" + "     888    888                               " + "</b></color>")
+    print("<color=#FF0000><b>" + "     888        888d888 8888b.  888 88888b.  " + "</b></color>")
+    print("<color=#FF0000><b>" + "     888  88888 888P'      '88b 888 888 '88b " + "</b></color>")
+    print("<color=#FF0000><b>" + "     888    888 888    .d888888 888 888  888 " + "</b></color>")
+    print("<color=#FF0000><b>" + "     Y88b  d88P 888    888  888 888 888  888 " + "</b></color>")
+    print("<color=#FF0000><b>" + "      'Y8888P88 888    'Y888888 888 888  888 " + "</b></color>")
+    print("")
+    print("<color=#990000><b>" + "--------------------------------------------------" + "</b></color>")
+    print("  Welcome to the AIO Psycho Hacking Tool")
+    print("  Version: 1.2.0 | Let the madness begin.")
+    print("  Type 'help' for commands.")
+    print("<color=#990000><b>" + "--------------------------------------------------" + "</b></color>")
 
     while true
-        input = user_input(char(10) + "AIO > ")
+        input = user_input(get_dynamic_prompt())
         if input == null or input == "" then continue
 
         parts = input.split(" ")
@@ -353,35 +444,67 @@ AutoHacker.generate_password = function(length)
     return password
 end function
 
+// Analyzes a shell to determine its privilege level and records it.
+AutoHacker.analyze_and_record_shell = function(shell, target_ip)
+    if shell == null then return null
+
+    home = shell.home_dir
+    access_level = "Guest"
+    username = "guest" // Default username
+
+    if home == "/root" then
+        access_level = "Root"
+        username = "root"
+        print("<color=red><b>[!!!] ROOT ACCESS OBTAINED on " + target_ip + "</b></color>")
+    else if home and home.indexOf("/home/") == 0 then
+        access_level = "User"
+        username = home.split("/")[2] // /home/username -> username
+        print_success("[+] User shell for '" + username + "' obtained on " + target_ip)
+    else
+        print_alert("[?] Guest or unknown shell obtained on " + target_ip)
+    end if
+
+    // The database logic will be fully implemented in the next step.
+    Database.add_access_level(target_ip, access_level, username)
+    return {"level": access_level, "user": username, "shell": shell}
+end function
+
 // Main function to orchestrate the hack against a target IP.
 AutoHacker.hack = function(target_ip)
     print("")
-    print("--- Starting hack on " + target_ip + " ---")
+    print_info("--- Starting hack on " + target_ip + " ---")
 
     // Step 1: Ensure we have scan data.
     if not Database.host_exists(target_ip) or Database.get_host(target_ip).last_scanned == null then
-        print("Host not in database or not scanned. Scanning first...")
+        print_info("Host not in database or not scanned. Scanning first...")
         UniversalScanner.scan(target_ip)
     end if
 
     host_data = Database.get_host(target_ip)
     if host_data == null or host_data.ports.len == 0 then
-        print("No open ports found for " + target_ip + ". Cannot proceed with exploit scan.")
+        print_alert("No open ports found for " + target_ip + ". Cannot proceed with exploit scan.")
         return
     end if
 
-    print("Beginning exploit scan on " + host_data.ports.len + " open ports.")
+    print_info("Beginning exploit scan on " + host_data.ports.len + " open ports.")
+    obtained_shells = []
 
     // Step 2: Attempt to exploit services on open ports.
     metax = include_lib("/lib/metaxploit.so")
     if metax == null then
-        print("Error: Metaxploit library not found. Aborting.")
+        print_error("Metaxploit library not found. Aborting.")
+        return
+    end if
+
+    router = get_router(target_ip) // Get router object for the target
+    if router == null then
+        print_error("Could not get router for IP " + target_ip + ". Aborting hack.")
         return
     end if
 
     for port_str in host_data.ports.indexes
         port_num = port_str.to_int
-        print("  -> Probing port " + port_num + "...")
+        print_info("  -> Probing port " + port_num + "...")
         net_session = metax.net_use(target_ip, port_num)
 
         if net_session == null then continue
@@ -389,12 +512,12 @@ AutoHacker.hack = function(target_ip)
         meta_lib = net_session.dump_lib()
         if meta_lib == null then continue
 
-        print("    Found library: " + meta_lib.lib_name + " v" + meta_lib.version)
+        print_info("    Found library: " + meta_lib.lib_name + " v" + meta_lib.version)
         vuln_areas = metax.scan(meta_lib)
 
         if vuln_areas == null or vuln_areas.len == 0 then continue
 
-        print("    [+] Found " + vuln_areas.len + " potential vulnerabilities. Analyzing...")
+        print_success("    Found " + vuln_areas.len + " potential vulnerabilities. Analyzing...")
 
         for area in vuln_areas
             details = metax.scan_address(meta_lib, area)
@@ -417,7 +540,7 @@ AutoHacker.hack = function(target_ip)
                 end if
             end if
 
-            print("      [+] Found exploit: " + exploit_name + " (Requirement: " + (requirement or "None") + ")")
+            print_success("      Found exploit: " + exploit_name + " (Requirement: " + (requirement or "None") + ")")
 
             // 3. Prepare optArgs and decide if we can attempt the exploit
             optArgs = "" // Default to empty string to avoid "Invalid arguments" error
@@ -425,57 +548,83 @@ AutoHacker.hack = function(target_ip)
 
             if requirement == "password" then
                 optArgs = AutoHacker.generate_password(8)
-                print("        Generated password for exploit: " + optArgs)
+                print_info("        Generated password for exploit: " + optArgs)
             else if requirement == "lan_ip" then
                 port_object = router.ping_port(port_num)
                 if port_object != null then
                     optArgs = port_object.get_lan_ip
                     if optArgs != null and optArgs != "" then
-                       print("        Found LAN IP for exploit: " + optArgs)
+                       print_info("        Found LAN IP for exploit: " + optArgs)
                     else
-                       print("        Error: Could not determine LAN IP. Skipping exploit.")
-                       can_attempt = false // We know the req but can't fulfill it
+                       print_error("        Could not determine LAN IP. Skipping exploit.")
+                       can_attempt = false
                     end if
                 else
-                    print("        Error: Could not ping port to find LAN IP. Skipping exploit.")
-                    can_attempt = false // We know the req but can't fulfill it
+                    print_error("        Could not ping port to find LAN IP. Skipping exploit.")
+                    can_attempt = false
                 end if
             end if
-            // For null or other unknown requirements, we will still try with empty optArgs.
 
             if can_attempt then
-                print("      Attempting exploit: " + exploit_name)
+                print_info("      Attempting exploit: " + exploit_name)
                 result = meta_lib.overflow(area, exploit_name, optArgs)
 
                 if result != null then
-                    print("      [SUCCESS] Exploit successful!")
+                    print_success("      [SUCCESS] Exploit successful!")
                     if typeof(result) == "shell" then
-                        print("        Got a shell! Proceeding with post-exploitation...")
-                        AutoHacker.crack_passwords(result, target_ip)
-                        AntiForensics.clean(result)
-                        print("--- Hack finished on " + target_ip + " ---")
-                        return
+                        print_success("        Got a shell! Collecting for analysis.")
+                        obtained_shells.push(result)
                     else if typeof(result) == "file" then
-                        print("        Got a file! Analyzing...")
+                        print_info("        Got a file! Analyzing...")
                         filepath = result.path
                         if result.has_permission("r") then
                             content = result.get_content
-                            print("        File path: " + filepath)
-                            print("        File content: " + content)
+                            print_info("        File path: " + filepath)
+                            print_info("        File content: " + content)
                             Database.add_file(target_ip, filepath, content)
-                            print("        File saved to database.")
+                            Database.save()
+                            print_success("        File saved to database.")
                         else
-                            print("        Got file at '" + filepath + "' but don't have read permissions.")
+                            print_alert("        Got file at '" + filepath + "' but don't have read permissions.")
                         end if
                     else
-                        print("        Exploit returned a " + typeof(result) + ". Handling not yet implemented.")
+                        print_alert("        Exploit returned a " + typeof(result) + ". Handling not yet implemented.")
                     end if
                 end if
             end if
         end for
     end for
 
-    print("--- Hack finished on " + target_ip + " ---")
+    // --- Analysis & Post-Exploitation Phase ---
+    if obtained_shells.len > 0 then
+        print_info("Exploit phase complete. Found " + obtained_shells.len + " shells. Analyzing access levels...")
+        analyzed_access = []
+        for shell in obtained_shells
+             access_info = AutoHacker.analyze_and_record_shell(shell, target_ip)
+             if access_info then analyzed_access.push(access_info)
+        end for
+
+        if analyzed_access.len > 0 then
+            // Select the best shell for post-exploitation (Root > User > Guest)
+            best_access = analyzed_access[0]
+            for access in analyzed_access
+                if access.level == "Root" then
+                    best_access = access
+                    break // Root is the best, no need to search further
+                else if access.level == "User" and best_access.level != "Root" then
+                    best_access = access // User is better than Guest
+                end if
+            end for
+
+            print_info("Best access obtained: '" + best_access.level + "' as user '" + best_access.user + "'")
+            print_info("Proceeding with post-exploitation using this shell...")
+            AutoHacker.crack_passwords(best_access.shell, target_ip)
+            AntiForensics.clean(best_access.shell)
+            Database.save()
+        end if
+    end if
+
+    print_info("--- Hack finished on " + target_ip + " ---")
 end function
 
 // Helper function to crack passwords from /etc/passwd if we get a shell.
